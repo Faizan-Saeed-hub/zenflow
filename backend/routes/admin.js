@@ -6,17 +6,54 @@ import { requireAdmin } from "../middleware/admin.js";
 const router = Router();
 router.use(requireAdmin);
 
-router.get("/dashboard", async (_req,res) => {
-  const db=getPool();
-  const [[users]]=await db.query("SELECT COUNT(*) total FROM users WHERE role='user'");
-  const [[plans]]=await db.query("SELECT COUNT(*) total FROM plans");
-  const [[tasks]]=await db.query("SELECT COUNT(*) total FROM tasks WHERE status='active'");
-  const [[withdrawals]]=await db.query("SELECT COUNT(*) total FROM withdrawals WHERE status='pending'");
-  const [[deposits]]=await db.query("SELECT COUNT(*) total FROM deposits WHERE status='pending'");
-  const [[pendingLoans]]=await db.query("SELECT COUNT(*) total FROM loans WHERE status='pending'");
-  const [[supports]]=await db.query("SELECT COUNT(*) total FROM support_requests WHERE status!='closed'");
-  const [[depositTotal]]=await db.query("SELECT COALESCE(SUM(amount),0) total FROM deposits WHERE status='approved'");
-  res.json({stats:{users:Number(users.total),plans:Number(plans.total),tasks:Number(tasks.total),pendingWithdrawals:Number(withdrawals.total),pendingDeposits:Number(deposits.total),pendingLoans:Number(pendingLoans.total),openSupport:Number(supports.total),walletBalance:Number(depositTotal.total)}});
+router.get("/dashboard", async (_req, res) => {
+  const db = getPool();
+  // Current Day (Today's) Doings
+  const [[todayUsers]] = await db.query("SELECT COUNT(*) total FROM users WHERE role='user' AND DATE(created_at) = CURDATE()");
+  const [[todayDeposits]] = await db.query("SELECT COALESCE(SUM(amount),0) total, COUNT(*) count FROM deposits WHERE DATE(submitted_at) = CURDATE()");
+  const [[todayApprovedDeposits]] = await db.query("SELECT COALESCE(SUM(amount),0) total, COUNT(*) count FROM deposits WHERE status='approved' AND (DATE(reviewed_at) = CURDATE() OR (reviewed_at IS NULL AND DATE(submitted_at) = CURDATE()))");
+  const [[todayPendingDeposits]] = await db.query("SELECT COUNT(*) total FROM deposits WHERE status='pending' AND DATE(submitted_at) = CURDATE()");
+  const [[todayWithdrawals]] = await db.query("SELECT COALESCE(SUM(amount),0) total, COUNT(*) count FROM withdrawals WHERE DATE(requested_at) = CURDATE()");
+  const [[todayPendingWithdrawals]] = await db.query("SELECT COUNT(*) total FROM withdrawals WHERE status='pending' AND DATE(requested_at) = CURDATE()");
+  const [[todayTasks]] = await db.query("SELECT COUNT(*) total, COALESCE(SUM(reward),0) rewards FROM task_submissions WHERE status='approved' AND task_date = CURDATE()");
+  const [[todaySupport]] = await db.query("SELECT COUNT(*) total FROM support_requests WHERE DATE(created_at) = CURDATE()");
+
+  // Platform Totals
+  const [[users]] = await db.query("SELECT COUNT(*) total FROM users WHERE role='user'");
+  const [[plans]] = await db.query("SELECT COUNT(*) total FROM plans");
+  const [[tasks]] = await db.query("SELECT COUNT(*) total FROM tasks WHERE status='active'");
+  const [[withdrawals]] = await db.query("SELECT COUNT(*) total FROM withdrawals WHERE status='pending'");
+  const [[deposits]] = await db.query("SELECT COUNT(*) total FROM deposits WHERE status='pending'");
+  const [[pendingLoans]] = await db.query("SELECT COUNT(*) total FROM loans WHERE status='pending'");
+  const [[supports]] = await db.query("SELECT COUNT(*) total FROM support_requests WHERE status!='closed'");
+  const [[depositTotal]] = await db.query("SELECT COALESCE(SUM(amount),0) total FROM deposits WHERE status='approved'");
+
+  res.json({
+    stats: {
+      // Primary: Current Day Doings
+      todayDeposits: Number(todayDeposits.total),
+      todayDepositsCount: Number(todayDeposits.count),
+      todayApprovedDeposits: Number(todayApprovedDeposits.total),
+      todayApprovedCount: Number(todayApprovedDeposits.count),
+      todayRegisteredUsers: Number(todayUsers.total),
+      todayPendingDeposits: Number(todayPendingDeposits.total),
+      todayWithdrawals: Number(todayWithdrawals.total),
+      todayPendingWithdrawals: Number(todayPendingWithdrawals.total),
+      todayTasksDone: Number(todayTasks.total),
+      todayTasksRewards: Number(todayTasks.rewards),
+      todaySupport: Number(todaySupport.total),
+
+      // Platform Totals
+      users: Number(users.total),
+      plans: Number(plans.total),
+      tasks: Number(tasks.total),
+      pendingWithdrawals: Number(withdrawals.total),
+      pendingDeposits: Number(deposits.total),
+      pendingLoans: Number(pendingLoans.total),
+      openSupport: Number(supports.total),
+      walletBalance: Number(depositTotal.total)
+    }
+  });
 });
 
 router.get("/users", async (req, res) => {
@@ -671,6 +708,352 @@ router.delete("/announcements/:id", async (req, res) => {
   } catch (e) {
     res.status(500).json({ message: "Unable to delete announcement." });
   }
+});
+
+// ==========================================
+// EARNINGS & DEPOSIT REVENUE BREAKDOWN
+// ==========================================
+router.get("/earnings", async (req, res) => {
+  const q = String(req.query.q || "").trim();
+  const status = String(req.query.status || "").trim();
+  const startDate = req.query.startDate ? String(req.query.startDate).trim() : null;
+  const endDate = req.query.endDate ? String(req.query.endDate).trim() : null;
+  const dayPreset = String(req.query.preset || "").trim();
+  const sort = String(req.query.sort || "newest_day").trim();
+  const db = getPool();
+
+  const conditions = ["1=1"];
+  const params = [];
+
+  if (q) {
+    conditions.push("(u.phone LIKE ? OR u.full_name LIKE ? OR d.tid LIKE ? OR d.wallet_number LIKE ?)");
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+  }
+  if (status && status !== "all") {
+    conditions.push("d.status = ?");
+    params.push(status);
+  }
+  if (dayPreset === "today") {
+    conditions.push("DATE(d.submitted_at) = CURDATE()");
+  } else if (dayPreset === "yesterday") {
+    conditions.push("DATE(d.submitted_at) = SUBDATE(CURDATE(), 1)");
+  } else if (dayPreset === "7days") {
+    conditions.push("DATE(d.submitted_at) >= SUBDATE(CURDATE(), 7)");
+  } else if (dayPreset === "30days") {
+    conditions.push("DATE(d.submitted_at) >= SUBDATE(CURDATE(), 30)");
+  } else if (dayPreset === "this_month") {
+    conditions.push("MONTH(d.submitted_at) = MONTH(CURDATE()) AND YEAR(d.submitted_at) = YEAR(CURDATE())");
+  } else {
+    if (startDate) {
+      conditions.push("DATE(d.submitted_at) >= ?");
+      params.push(startDate);
+    }
+    if (endDate) {
+      conditions.push("DATE(d.submitted_at) <= ?");
+      params.push(endDate);
+    }
+  }
+
+  const whereClause = conditions.join(" AND ");
+
+  let dayOrder = "date_day DESC";
+  if (sort === "oldest_day") dayOrder = "date_day ASC";
+  else if (sort === "highest_amount") dayOrder = "approved_amount DESC";
+  else if (sort === "lowest_amount") dayOrder = "approved_amount ASC";
+
+  try {
+    // 1. Grouped by Days
+    const [dailyBreakdown] = await db.query(
+      `SELECT 
+         DATE(d.submitted_at) AS date_day,
+         COUNT(*) AS total_count,
+         COALESCE(SUM(CASE WHEN d.status = 'approved' THEN d.amount ELSE 0 END), 0) AS approved_amount,
+         COALESCE(SUM(CASE WHEN d.status = 'pending' THEN d.amount ELSE 0 END), 0) AS pending_amount,
+         COALESCE(SUM(CASE WHEN d.status = 'rejected' THEN d.amount ELSE 0 END), 0) AS rejected_amount,
+         COALESCE(SUM(d.amount), 0) AS total_amount,
+         COUNT(DISTINCT d.user_id) AS unique_depositors
+       FROM deposits d
+       JOIN users u ON u.id = d.user_id
+       WHERE ${whereClause}
+       GROUP BY DATE(d.submitted_at)
+       ORDER BY ${dayOrder} LIMIT 100`,
+      params
+    );
+
+    // 2. Summary Totals
+    const [summaryRows] = await db.query(
+      `SELECT 
+         COALESCE(SUM(CASE WHEN d.status = 'approved' THEN d.amount ELSE 0 END), 0) AS total_approved,
+         COALESCE(SUM(CASE WHEN d.status = 'pending' THEN d.amount ELSE 0 END), 0) AS total_pending,
+         COALESCE(SUM(d.amount), 0) AS total_volume,
+         COUNT(*) AS total_records
+       FROM deposits d
+       JOIN users u ON u.id = d.user_id
+       WHERE ${whereClause}`,
+      params
+    );
+
+    // 3. Raw Detailed Records
+    const [deposits] = await db.query(
+      `SELECT d.id, d.user_id, u.phone, u.full_name, d.plan_code, d.amount, d.payment_method, d.tid,
+              d.wallet_number, d.proof_data, d.status, d.submitted_at, d.reviewed_at
+       FROM deposits d
+       JOIN users u ON u.id = d.user_id
+       WHERE ${whereClause}
+       ORDER BY d.submitted_at DESC LIMIT 300`,
+      params
+    );
+
+    res.json({
+      summary: summaryRows[0] || {},
+      dailyBreakdown,
+      deposits
+    });
+  } catch (err) {
+    console.error("Admin earnings error:", err);
+    res.status(500).json({ message: "Unable to load earnings breakdown." });
+  }
+});
+
+// ==========================================
+// DATA EXPORT (Users, Teams, Deposits, Withdrawals)
+// ==========================================
+router.get("/export/users", async (_req, res) => {
+  try {
+    const [rows] = await getPool().query(
+      `SELECT u.id, u.phone, u.full_name, u.email, u.referral_code, u.role,
+              u.wallet_balance, u.commission_balance, u.total_earned, u.created_at,
+              ref.phone AS referrer_phone,
+              (SELECT COUNT(*) FROM users m WHERE m.referred_by=u.id) AS direct_members,
+              (SELECT p.code FROM user_plans up JOIN plans p ON p.id=up.plan_id WHERE up.user_id=u.id AND up.status='active' ORDER BY up.started_at DESC LIMIT 1) AS active_plan
+       FROM users u
+       LEFT JOIN users ref ON ref.id=u.referred_by
+       WHERE u.role='user'
+       ORDER BY u.id DESC`
+    );
+    res.json({ users: rows });
+  } catch (e) {
+    res.status(500).json({ message: "Unable to export users: " + e.message });
+  }
+});
+
+router.get("/export/teams", async (_req, res) => {
+  try {
+    const [rows] = await getPool().query(
+      `SELECT u.id AS member_id, u.phone AS member_phone, u.full_name AS member_name,
+              ref.phone AS referrer_phone, ref.full_name AS referrer_name,
+              u.wallet_balance, u.commission_balance, u.total_earned, u.created_at AS joined_at,
+              (SELECT p.code FROM user_plans up JOIN plans p ON p.id=up.plan_id WHERE up.user_id=u.id AND up.status='active' ORDER BY up.started_at DESC LIMIT 1) AS active_plan
+       FROM users u
+       JOIN users ref ON ref.id = u.referred_by
+       WHERE u.role='user'
+       ORDER BY u.referred_by ASC, u.id DESC`
+    );
+    res.json({ teams: rows });
+  } catch (e) {
+    res.status(500).json({ message: "Unable to export teams: " + e.message });
+  }
+});
+
+router.get("/export/deposits", async (_req, res) => {
+  try {
+    const [rows] = await getPool().query(
+      `SELECT d.id, u.phone AS user_phone, u.full_name AS user_name, d.plan_code, d.amount,
+              d.payment_method, d.tid, d.wallet_number, d.status, d.submitted_at, d.reviewed_at
+       FROM deposits d
+       JOIN users u ON u.id = d.user_id
+       ORDER BY d.submitted_at DESC`
+    );
+    res.json({ deposits: rows });
+  } catch (e) {
+    res.status(500).json({ message: "Unable to export deposits: " + e.message });
+  }
+});
+
+router.get("/export/withdrawals", async (_req, res) => {
+  try {
+    const [rows] = await getPool().query(
+      `SELECT w.id, u.phone AS user_phone, u.full_name AS user_name, w.wallet_type, w.amount,
+              w.fee, w.net_amount, pa.method, pa.account_name, pa.account_number,
+              w.status, w.requested_at, w.processed_at
+       FROM withdrawals w
+       JOIN users u ON u.id = w.user_id
+       LEFT JOIN payout_accounts pa ON pa.id = w.payout_account_id
+       ORDER BY w.requested_at DESC`
+    );
+    res.json({ withdrawals: rows });
+  } catch (e) {
+    res.status(500).json({ message: "Unable to export withdrawals: " + e.message });
+  }
+});
+
+// ==========================================
+// DATA IMPORT (Users, Deposits, Withdrawals)
+// ==========================================
+router.post("/import/users", async (req, res) => {
+  const { users = [] } = req.body || {};
+  if (!Array.isArray(users) || users.length === 0) {
+    return res.status(400).json({ message: "Please provide a valid list of users to import." });
+  }
+
+  const db = getPool();
+  let importedCount = 0;
+  let updatedCount = 0;
+  const errors = [];
+
+  for (const item of users) {
+    const phone = String(item.phone || "").trim().replace(/\D/g, "");
+    if (!phone || phone.length < 10) {
+      errors.push(`Invalid phone: ${item.phone || "empty"}`);
+      continue;
+    }
+
+    try {
+      const [[existing]] = await db.query("SELECT id FROM users WHERE phone = ? LIMIT 1", [phone]);
+      const fullName = String(item.full_name || item.fullName || "User").slice(0, 120);
+      const email = item.email ? String(item.email).slice(0, 190) : null;
+      const walletBal = Number(item.wallet_balance || item.walletBalance || 0);
+      const commBal = Number(item.commission_balance || item.commissionBalance || 0);
+      const earned = Number(item.total_earned || item.totalEarned || 0);
+
+      let referrerId = null;
+      if (item.referrer_phone || item.referrerPhone) {
+        const refPhone = String(item.referrer_phone || item.referrerPhone).replace(/\D/g, "");
+        const [[refRow]] = await db.query("SELECT id FROM users WHERE phone = ? LIMIT 1", [refPhone]);
+        if (refRow) referrerId = refRow.id;
+      }
+
+      if (existing) {
+        await db.query(
+          `UPDATE users SET
+             full_name = COALESCE(?, full_name),
+             email = COALESCE(?, email),
+             wallet_balance = ?,
+             commission_balance = ?,
+             total_earned = ?,
+             referred_by = COALESCE(?, referred_by)
+           WHERE id = ?`,
+          [fullName, email, walletBal, commBal, earned, referrerId, existing.id]
+        );
+        updatedCount++;
+      } else {
+        const refCode = `ZF${Math.random().toString(36).slice(2, 7).toUpperCase()}${Math.floor(10 + Math.random() * 90)}`;
+        const defaultHash = await bcrypt.hash("ZenFlow@123", 10);
+        await db.query(
+          `INSERT INTO users (phone, password_hash, full_name, email, referral_code, referred_by, wallet_balance, commission_balance, total_earned, role)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'user')`,
+          [phone, defaultHash, fullName, email, refCode, referrerId, walletBal, commBal, earned]
+        );
+        importedCount++;
+      }
+    } catch (err) {
+      errors.push(`Error on ${phone}: ${err.message}`);
+    }
+  }
+
+  res.json({
+    message: `User import finished: ${importedCount} created, ${updatedCount} updated.`,
+    imported: importedCount,
+    updated: updatedCount,
+    errors
+  });
+});
+
+router.post("/import/deposits", async (req, res) => {
+  const { deposits = [] } = req.body || {};
+  if (!Array.isArray(deposits) || deposits.length === 0) {
+    return res.status(400).json({ message: "Please provide a valid list of deposits to import." });
+  }
+
+  const db = getPool();
+  let importedCount = 0;
+  const errors = [];
+
+  for (const item of deposits) {
+    const phone = String(item.user_phone || item.phone || "").trim().replace(/\D/g, "");
+    const amount = Number(item.amount || 0);
+    if (!phone || amount <= 0) {
+      errors.push(`Invalid record: Phone ${phone}, Amount ${amount}`);
+      continue;
+    }
+
+    try {
+      const [[user]] = await db.query("SELECT id FROM users WHERE phone = ? LIMIT 1", [phone]);
+      if (!user) {
+        errors.push(`User not found with phone ${phone}`);
+        continue;
+      }
+
+      const planCode = String(item.plan_code || item.planCode || "F1");
+      const method = String(item.payment_method || item.method || "JazzCash");
+      const tid = String(item.tid || `IMP-${Date.now()}-${Math.floor(Math.random() * 1000)}`);
+      const walletNum = item.wallet_number || item.walletNumber || phone;
+      const status = ["approved", "pending", "rejected"].includes(item.status) ? item.status : "approved";
+
+      await db.query(
+        `INSERT INTO deposits (user_id, plan_code, amount, payment_method, tid, wallet_number, status, submitted_at, reviewed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+        [user.id, planCode, amount, method, tid, walletNum, status]
+      );
+      importedCount++;
+    } catch (err) {
+      errors.push(`Error on deposit TID ${item.tid || phone}: ${err.message}`);
+    }
+  }
+
+  res.json({
+    message: `Deposit import finished: ${importedCount} records imported.`,
+    imported: importedCount,
+    errors
+  });
+});
+
+router.post("/import/withdrawals", async (req, res) => {
+  const { withdrawals = [] } = req.body || {};
+  if (!Array.isArray(withdrawals) || withdrawals.length === 0) {
+    return res.status(400).json({ message: "Please provide a valid list of withdrawals to import." });
+  }
+
+  const db = getPool();
+  let importedCount = 0;
+  const errors = [];
+
+  for (const item of withdrawals) {
+    const phone = String(item.user_phone || item.phone || "").trim().replace(/\D/g, "");
+    const amount = Number(item.amount || 0);
+    if (!phone || amount <= 0) {
+      errors.push(`Invalid record: Phone ${phone}, Amount ${amount}`);
+      continue;
+    }
+
+    try {
+      const [[user]] = await db.query("SELECT id FROM users WHERE phone = ? LIMIT 1", [phone]);
+      if (!user) {
+        errors.push(`User not found with phone ${phone}`);
+        continue;
+      }
+
+      const walletType = item.wallet_type || "commission";
+      const fee = Number(item.fee || (amount * 0.12));
+      const netAmount = Number(item.net_amount || (amount - fee));
+      const status = ["approved", "paid", "pending", "rejected"].includes(item.status) ? item.status : "approved";
+
+      await db.query(
+        `INSERT INTO withdrawals (user_id, wallet_type, amount, fee, net_amount, status, requested_at, processed_at)
+         VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+        [user.id, walletType, amount, fee, netAmount, status]
+      );
+      importedCount++;
+    } catch (err) {
+      errors.push(`Error on withdrawal ${phone}: ${err.message}`);
+    }
+  }
+
+  res.json({
+    message: `Withdrawal import finished: ${importedCount} records imported.`,
+    imported: importedCount,
+    errors
+  });
 });
 
 export default router;

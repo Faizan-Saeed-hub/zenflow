@@ -4,17 +4,19 @@ import { api, clearSession } from "../services/api";
 
 const tabs = [
   "Overview",
+  "Earnings",
   "Users",
   "User Access",
   "Team",
-  "Announcements",
-  "Plans",
-  "Tasks",
   "Deposits",
   "Withdrawals",
-  "Loans",
+  "Tasks",
+  "Plans",
+  "Import / Export",
+  "Announcements",
   "News",
   "Support",
+  "Loans",
   "Bank"
 ];
 const BANK_METHODS = ["JazzCash", "SadaPay", "EasyPaisa", "Binance (BEP-20)"];
@@ -93,6 +95,34 @@ export function exportToCsv(filename, headers, dataRows) {
   document.body.removeChild(link);
 }
 
+export function parseCsv(text) {
+  const lines = text.split(/\r\n|\n/).filter((l) => l.trim().length > 0);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map((h) => h.replace(/^["']|["']$/g, "").trim());
+  return lines.slice(1).map((line) => {
+    const values = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"' || c === "'") {
+        inQuotes = !inQuotes;
+      } else if (c === "," && !inQuotes) {
+        values.push(current.trim());
+        current = "";
+      } else {
+        current += c;
+      }
+    }
+    values.push(current.trim());
+    const obj = {};
+    headers.forEach((h, idx) => {
+      obj[h] = values[idx]?.replace(/^["']|["']$/g, "") || "";
+    });
+    return obj;
+  });
+}
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [tab, setTab] = useState("Overview");
@@ -104,6 +134,7 @@ export default function AdminDashboard() {
     setError("");
     try {
       if (section === "Overview") setData({ dashboard: (await api.adminDashboard()).stats });
+      if (section === "Earnings") setData({ earnings: await api.adminEarnings(extraParams) });
       if (section === "Users" || section === "User Access") {
         const queryStr = new URLSearchParams(extraParams).toString();
         const res = await fetch(`/api/admin/users?${queryStr}`, {
@@ -172,47 +203,102 @@ export default function AdminDashboard() {
       {error && <div className="admin-error">{error}</div>}
       {busy && <div className="admin-busy">Saving…</div>}
       {tab === "Overview" && <Overview stats={data.dashboard} onSelectTab={setTab} />}
+      {tab === "Earnings" && <Earnings data={data.earnings || {}} onFilter={(p) => load("Earnings", p)} />}
       {tab === "Users" && <Users rows={data.users || []} update={update} onFilter={(p) => load("Users", p)} />}
       {tab === "User Access" && <UserAccess rows={data.users || []} update={update} />}
       {tab === "Team" && <AdminTeam data={data.team} />}
-      {tab === "Announcements" && <Announcements rows={data.announcements || []} update={update} />}
-      {tab === "Plans" && <Plans rows={data.plans || []} update={update} />}
-      {tab === "Tasks" && <Tasks rows={data.tasks || []} update={update} />}
       {tab === "Deposits" && <Deposits rows={data.deposits || []} update={update} onFilter={(p) => load("Deposits", p)} />}
       {tab === "Withdrawals" && <Withdrawals rows={data.withdrawals || []} update={update} onFilter={(p) => load("Withdrawals", p)} />}
-      {tab === "Loans" && <Loans rows={data.loans || []} update={update} />}
+      {tab === "Tasks" && <Tasks rows={data.tasks || []} update={update} />}
+      {tab === "Plans" && <Plans rows={data.plans || []} update={update} />}
+      {tab === "Import / Export" && <ImportExport update={update} />}
+      {tab === "Announcements" && <Announcements rows={data.announcements || []} update={update} />}
       {tab === "News" && <News rows={data.news || []} update={update} />}
       {tab === "Support" && <Support rows={data.support || []} update={update} />}
+      {tab === "Loans" && <Loans rows={data.loans || []} update={update} />}
       {tab === "Bank" && <BankSettings rows={data.bank || []} update={update} />}
     </section>
   );
 }
 
 function Overview({ stats = {}, onSelectTab }) {
-  const statCards = [
-    { label: "Users", val: stats.users, tab: "Users" },
-    { label: "Active tasks", val: stats.tasks, tab: "Tasks" },
-    { label: "Plans", val: stats.plans, tab: "Plans" },
-    { label: "Approved deposits (Wallet)", val: `Rs. ${Number(stats.walletBalance || 0).toFixed(2)}`, tab: "Deposits" },
-    { label: "Pending deposits", val: stats.pendingDeposits, tab: "Deposits" },
-    { label: "Pending withdrawals", val: stats.pendingWithdrawals, tab: "Withdrawals" },
-    { label: "Pending loans", val: stats.pendingLoans, tab: "Loans" },
-    { label: "Open support", val: stats.openSupport, tab: "Support" }
+  const todayCards = [
+    { label: "Today's Deposits", val: `Rs. ${Number(stats.todayDeposits || 0).toLocaleString()}`, sub: `${stats.todayDepositsCount || 0} requests today`, tab: "Earnings", color: "#008747" },
+    { label: "Today's Approved Deposits", val: `Rs. ${Number(stats.todayApprovedDeposits || 0).toLocaleString()}`, sub: "Credited to wallets", tab: "Earnings", color: "#059669" },
+    { label: "Today's Registered Users", val: stats.todayRegisteredUsers ?? 0, sub: "Joined today", tab: "Users", color: "#2563eb" },
+    { label: "Today's Pending Deposits", val: stats.todayPendingDeposits ?? 0, sub: "Awaiting approval", tab: "Deposits", color: "#d97706" },
+    { label: "Today's Withdrawals", val: `Rs. ${Number(stats.todayWithdrawals || 0).toLocaleString()}`, sub: "Requested today", tab: "Withdrawals", color: "#7c3aed" },
+    { label: "Today's Pending Withdrawals", val: stats.todayPendingWithdrawals ?? 0, sub: "Pending payout", tab: "Withdrawals", color: "#e11d48" },
+    { label: "Today's Tasks Done", val: stats.todayTasksDone ?? 0, sub: `Rs. ${Number(stats.todayTasksRewards || 0).toFixed(2)} rewards`, tab: "Tasks", color: "#0891b2" },
+    { label: "Today's Support Inquiries", val: stats.todaySupport ?? 0, sub: "Submitted today", tab: "Support", color: "#4f46e5" }
+  ];
+
+  const overallCards = [
+    { label: "All-Time Registered Users", val: stats.users, tab: "Users" },
+    { label: "Active Plans", val: stats.plans, tab: "Plans" },
+    { label: "Active Tasks in Hall", val: stats.tasks, tab: "Tasks" },
+    { label: "Total Approved Deposits Volume", val: `Rs. ${Number(stats.walletBalance || 0).toLocaleString()}`, tab: "Earnings" },
+    { label: "Total Pending Deposits", val: stats.pendingDeposits, tab: "Deposits" },
+    { label: "Total Pending Withdrawals", val: stats.pendingWithdrawals, tab: "Withdrawals" },
+    { label: "Total Pending Loans", val: stats.pendingLoans, tab: "Loans" },
+    { label: "Total Open Support Tickets", val: stats.openSupport, tab: "Support" }
   ];
 
   return (
     <div className="admin-overview">
-      <div className="admin-overview-stats admin-grid">
-        {statCards.map(({ label, val, tab }) => (
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
+        <div>
+          <h2 style={{ margin: "0 0 4px", fontSize: "20px", color: "#1e293b" }}>☀️ Today's Overview &amp; Doings</h2>
+          <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>Live real-time daily metrics for {new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+        </div>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button
+            type="button"
+            onClick={() => onSelectTab("Earnings")}
+            style={{ background: "#008747", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}
+          >
+            💰 View Earnings
+          </button>
+          <button
+            type="button"
+            onClick={() => onSelectTab("Import / Export")}
+            style={{ background: "#0f172a", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}
+          >
+            🔄 Data Share / Export
+          </button>
+        </div>
+      </div>
+
+      <div className="admin-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "14px", marginBottom: "28px" }}>
+        {todayCards.map(({ label, val, sub, tab, color }) => (
+          <button
+            type="button"
+            className="admin-stat admin-stat-button"
+            key={label}
+            onClick={() => tab && onSelectTab && onSelectTab(tab)}
+            style={{ borderLeft: `4px solid ${color}`, background: "#fff", textAlign: "left", padding: "16px" }}
+            title={tab ? `Go to ${tab}` : undefined}
+          >
+            <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b" }}>{label}</span>
+            <strong style={{ fontSize: "22px", margin: "6px 0 2px", color: "#0f172a", display: "block" }}>{val}</strong>
+            <small style={{ fontSize: "11px", color: color, fontWeight: 600 }}>{sub}</small>
+          </button>
+        ))}
+      </div>
+
+      <h3 style={{ margin: "24px 0 12px", fontSize: "16px", color: "#334155" }}>🌐 Overall Platform Lifetime Totals</h3>
+      <div className="admin-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px" }}>
+        {overallCards.map(({ label, val, tab }) => (
           <button
             type="button"
             className="admin-stat admin-stat-button"
             key={label}
             onClick={() => tab && onSelectTab && onSelectTab(tab)}
             title={tab ? `Go to ${tab}` : undefined}
+            style={{ padding: "12px" }}
           >
-            <span>{label}</span>
-            <strong>{val ?? 0}</strong>
+            <span style={{ fontSize: "11px" }}>{label}</span>
+            <strong style={{ fontSize: "17px" }}>{val ?? 0}</strong>
           </button>
         ))}
       </div>
@@ -1277,6 +1363,505 @@ function Tasks({ rows, update }) {
         );
       })}
       </Table>
+    </>
+  );
+}
+
+function Earnings({ data = {}, onFilter }) {
+  const [q, setQ] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [status, setStatus] = useState("all");
+  const [sort, setSort] = useState("newest_day");
+  const [preset, setPreset] = useState("all");
+
+  const summary = data.summary || {};
+  const dailyBreakdown = data.dailyBreakdown || [];
+  const deposits = data.deposits || [];
+
+  const applyPreset = (p) => {
+    setPreset(p);
+    setStartDate("");
+    setEndDate("");
+    onFilter({ q: q.trim(), status, sort, preset: p });
+  };
+
+  const applyFilter = (e) => {
+    e?.preventDefault();
+    setPreset("");
+    onFilter({ q: q.trim(), startDate, endDate, status, sort, preset: "" });
+  };
+
+  const resetFilter = () => {
+    setQ("");
+    setStartDate("");
+    setEndDate("");
+    setStatus("all");
+    setSort("newest_day");
+    setPreset("all");
+    onFilter({});
+  };
+
+  const handleExportDailyCsv = () => {
+    const headers = ["Date", "Approved Revenue (PKR)", "Pending Volume (PKR)", "Rejected Volume (PKR)", "Total Volume (PKR)", "Total Requests", "Unique Depositors"];
+    const dataRows = dailyBreakdown.map((r) => [
+      r.date_day ? new Date(r.date_day).toLocaleDateString() : "",
+      r.approved_amount,
+      r.pending_amount,
+      r.rejected_amount,
+      r.total_amount,
+      r.total_count,
+      r.unique_depositors
+    ]);
+    exportToCsv("zenflow_daily_earnings", headers, dataRows);
+  };
+
+  const handleExportDepositsCsv = () => {
+    const headers = ["ID", "User Phone", "User Name", "Plan Code", "Amount (PKR)", "Payment Method", "TID", "Wallet Number", "Status", "Date & Time"];
+    const dataRows = deposits.map((r) => [
+      r.id,
+      r.phone,
+      r.full_name || "",
+      r.plan_code || "",
+      r.amount,
+      r.payment_method || "",
+      r.tid || "",
+      r.wallet_number || "",
+      r.status,
+      r.submitted_at ? new Date(r.submitted_at).toLocaleString() : ""
+    ]);
+    exportToCsv("zenflow_earnings_transactions", headers, dataRows);
+  };
+
+  return (
+    <>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
+        <div>
+          <h2 className="admin-section-title" style={{ margin: "0 0 4px" }}>💰 Platform Earnings &amp; Deposit Revenue</h2>
+          <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>Track all platform revenue, daily collections, and deposit breakdowns</p>
+        </div>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button
+            type="button"
+            onClick={handleExportDailyCsv}
+            style={{ background: "#008747", color: "#fff", border: "none", padding: "8px 14px", borderRadius: "8px", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}
+          >
+            📊 Export Daily Summary CSV
+          </button>
+          <button
+            type="button"
+            onClick={handleExportDepositsCsv}
+            style={{ background: "#0f172a", color: "#fff", border: "none", padding: "8px 14px", borderRadius: "8px", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}
+          >
+            💾 Export Transactions CSV
+          </button>
+        </div>
+      </div>
+
+      {/* Revenue Summary Stats */}
+      <div className="admin-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px", marginBottom: "18px" }}>
+        <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "16px", borderRadius: "10px" }}>
+          <small style={{ color: "#047857", fontWeight: 600 }}>Total Approved Revenue</small>
+          <h3 style={{ margin: "6px 0 0", fontSize: "22px", color: "#065f46" }}>Rs. {Number(summary.total_approved || 0).toLocaleString()}</h3>
+        </div>
+        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", padding: "16px", borderRadius: "10px" }}>
+          <small style={{ color: "#475569", fontWeight: 600 }}>Total Deposit Volume (All Statuses)</small>
+          <h3 style={{ margin: "6px 0 0", fontSize: "22px", color: "#0f172a" }}>Rs. {Number(summary.total_volume || 0).toLocaleString()}</h3>
+        </div>
+        <div style={{ background: "#fffbeb", border: "1px solid #fde68a", padding: "16px", borderRadius: "10px" }}>
+          <small style={{ color: "#b45309", fontWeight: 600 }}>Pending Deposit Amount</small>
+          <h3 style={{ margin: "6px 0 0", fontSize: "22px", color: "#92400e" }}>Rs. {Number(summary.total_pending || 0).toLocaleString()}</h3>
+        </div>
+        <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "16px", borderRadius: "10px" }}>
+          <small style={{ color: "#15803d", fontWeight: 600 }}>Total Deposit Records</small>
+          <h3 style={{ margin: "6px 0 0", fontSize: "22px", color: "#166534" }}>{summary.total_records || 0}</h3>
+        </div>
+      </div>
+
+      {/* Day Quick Presets & Filters */}
+      <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", padding: "14px", borderRadius: "12px", marginBottom: "20px" }}>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "12px", alignItems: "center" }}>
+          <span style={{ fontSize: "12px", fontWeight: 700, color: "#475569", marginRight: "4px" }}>Filter By Day:</span>
+          {[
+            { id: "all", label: "All Time" },
+            { id: "today", label: "Today" },
+            { id: "yesterday", label: "Yesterday" },
+            { id: "7days", label: "Last 7 Days" },
+            { id: "30days", label: "Last 30 Days" },
+            { id: "this_month", label: "This Month" }
+          ].map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => applyPreset(p.id)}
+              style={{
+                padding: "6px 14px",
+                borderRadius: "6px",
+                border: "none",
+                fontSize: "12px",
+                fontWeight: 600,
+                cursor: "pointer",
+                background: preset === p.id ? "#008747" : "#e2e8f0",
+                color: preset === p.id ? "#fff" : "#334155"
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        <form onSubmit={applyFilter} style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            type="text"
+            placeholder="Search phone, name, TID..."
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            style={{ flex: "1 1 160px", padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+          />
+          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <small style={{ fontWeight: 600 }}>From:</small>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              style={{ padding: "7px 10px", borderRadius: "8px", border: "1px solid #cbd5e1", fontSize: "12px" }}
+            />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <small style={{ fontWeight: 600 }}>To:</small>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              style={{ padding: "7px 10px", borderRadius: "8px", border: "1px solid #cbd5e1", fontSize: "12px" }}
+            />
+          </div>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            style={{ padding: "8px 10px", borderRadius: "8px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+          >
+            <option value="all">All Statuses</option>
+            <option value="approved">Approved Only</option>
+            <option value="pending">Pending Only</option>
+            <option value="rejected">Rejected Only</option>
+          </select>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+            style={{ padding: "8px 10px", borderRadius: "8px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+          >
+            <option value="newest_day">Newest Days First</option>
+            <option value="oldest_day">Oldest Days First</option>
+            <option value="highest_amount">Highest Amount First</option>
+            <option value="lowest_amount">Lowest Amount First</option>
+          </select>
+          <button
+            type="submit"
+            style={{ padding: "8px 16px", borderRadius: "8px", background: "#008747", color: "#fff", border: "none", cursor: "pointer", fontWeight: 600 }}
+          >
+            Apply Filter
+          </button>
+          <button
+            type="button"
+            onClick={resetFilter}
+            style={{ padding: "8px 14px", borderRadius: "8px", background: "#e2e8f0", color: "#334155", border: "none", cursor: "pointer" }}
+          >
+            Reset
+          </button>
+        </form>
+      </div>
+
+      {/* 1. Daily Earnings Breakdown */}
+      <h3 style={{ margin: "20px 0 10px", fontSize: "16px", color: "#1e293b" }}>📅 Daily Earnings &amp; Deposit Summary ({dailyBreakdown.length} days)</h3>
+      {dailyBreakdown.length === 0 ? (
+        <p style={{ color: "#64748b", padding: "16px", background: "#f8fafc", borderRadius: "8px" }}>No earnings data found for this period.</p>
+      ) : (
+        <Table headers={["Date / Day", "Approved Revenue (PKR)", "Pending Volume", "Rejected Volume", "Total Volume", "Requests", "Unique Depositors"]}>
+          {dailyBreakdown.map((r, i) => (
+            <tr key={i}>
+              <td><strong>{r.date_day ? new Date(r.date_day).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }) : "—"}</strong></td>
+              <td style={{ color: "#166534", fontWeight: 700 }}>Rs. {Number(r.approved_amount).toLocaleString()}</td>
+              <td style={{ color: "#92400e" }}>Rs. {Number(r.pending_amount).toLocaleString()}</td>
+              <td style={{ color: "#dc2626" }}>Rs. {Number(r.rejected_amount).toLocaleString()}</td>
+              <td><strong>Rs. {Number(r.total_amount).toLocaleString()}</strong></td>
+              <td>{r.total_count}</td>
+              <td>{r.unique_depositors} users</td>
+            </tr>
+          ))}
+        </Table>
+      )}
+
+      {/* 2. Detailed Deposits Transactions */}
+      <h3 style={{ margin: "28px 0 10px", fontSize: "16px", color: "#1e293b" }}>📝 Detailed Deposit Records ({deposits.length} records)</h3>
+      {deposits.length === 0 ? (
+        <p style={{ color: "#64748b", padding: "16px", background: "#f8fafc", borderRadius: "8px" }}>No deposit transactions match the filter.</p>
+      ) : (
+        <Table headers={["User", "Plan / TID", "Amount", "Date & Time", "Proof", "Status"]}>
+          {deposits.map((d) => (
+            <tr key={d.id}>
+              <td>
+                <strong>{d.full_name || d.phone}</strong>
+                <small>{d.phone}</small>
+              </td>
+              <td>
+                {d.plan_code}
+                <small>{d.payment_method} · TID {d.tid}</small>
+              </td>
+              <td>Rs. {Number(d.amount).toLocaleString()}</td>
+              <td>
+                <small>{d.submitted_at ? new Date(d.submitted_at).toLocaleString() : "—"}</small>
+              </td>
+              <td>
+                {d.proof_data ? (
+                  <button
+                    onClick={() => {
+                      const w = window.open();
+                      if (w) w.document.write(`<img src="${d.proof_data}" style="max-width:100%;height:auto"/>`);
+                    }}
+                  >
+                    View proof
+                  </button>
+                ) : (
+                  "—"
+                )}
+              </td>
+              <td>
+                <span
+                  style={{
+                    padding: "3px 8px",
+                    borderRadius: "6px",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    background: d.status === "approved" ? "#dcfce7" : d.status === "pending" ? "#fef3c7" : "#fee2e2",
+                    color: d.status === "approved" ? "#166534" : d.status === "pending" ? "#92400e" : "#dc2626"
+                  }}
+                >
+                  {d.status}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </Table>
+      )}
+    </>
+  );
+}
+
+function ImportExport({ update }) {
+  const [importType, setImportType] = useState("users");
+  const [jsonText, setJsonText] = useState("");
+  const [importStatus, setImportStatus] = useState("");
+  const [exportStatus, setExportStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const handleExport = async (type) => {
+    setExportStatus(`Exporting ${type}...`);
+    try {
+      if (type === "users") {
+        const { users } = await api.adminExportUsers();
+        const headers = ["ID", "Phone", "Full Name", "Email", "Referral Code", "Referrer Phone", "Wallet Balance", "Commission Balance", "Total Earned", "Active Plan", "Joined At"];
+        const rows = users.map((u) => [
+          u.id, u.phone, u.full_name || "", u.email || "", u.referral_code, u.referrer_phone || "",
+          u.wallet_balance, u.commission_balance, u.total_earned, u.active_plan || "Intern",
+          u.created_at ? new Date(u.created_at).toLocaleString() : ""
+        ]);
+        exportToCsv("zenflow_users_export", headers, rows);
+      } else if (type === "teams") {
+        const { teams } = await api.adminExportTeams();
+        const headers = ["Member ID", "Member Phone", "Member Name", "Referrer Phone", "Referrer Name", "Wallet Balance", "Commission Balance", "Total Earned", "Active Plan", "Joined At"];
+        const rows = teams.map((t) => [
+          t.member_id, t.member_phone, t.member_name || "", t.referrer_phone || "", t.referrer_name || "",
+          t.wallet_balance, t.commission_balance, t.total_earned, t.active_plan || "Intern",
+          t.joined_at ? new Date(t.joined_at).toLocaleString() : ""
+        ]);
+        exportToCsv("zenflow_teams_export", headers, rows);
+      } else if (type === "deposits") {
+        const { deposits } = await api.adminExportDeposits();
+        const headers = ["ID", "User Phone", "User Name", "Plan Code", "Amount (PKR)", "Payment Method", "TID", "Wallet Number", "Status", "Submitted At", "Reviewed At"];
+        const rows = deposits.map((d) => [
+          d.id, d.user_phone, d.user_name || "", d.plan_code, d.amount, d.payment_method, d.tid, d.wallet_number, d.status,
+          d.submitted_at ? new Date(d.submitted_at).toLocaleString() : "",
+          d.reviewed_at ? new Date(d.reviewed_at).toLocaleString() : ""
+        ]);
+        exportToCsv("zenflow_deposits_export", headers, rows);
+      } else if (type === "withdrawals") {
+        const { withdrawals } = await api.adminExportWithdrawals();
+        const headers = ["ID", "User Phone", "User Name", "Wallet Type", "Amount (PKR)", "Fee (PKR)", "Net Amount (PKR)", "Method", "Account Name", "Account Number", "Status", "Requested At", "Processed At"];
+        const rows = withdrawals.map((w) => [
+          w.id, w.user_phone, w.user_name || "", w.wallet_type, w.amount, w.fee, w.net_amount, w.method, w.account_name, w.account_number, w.status,
+          w.requested_at ? new Date(w.requested_at).toLocaleString() : "",
+          w.processed_at ? new Date(w.processed_at).toLocaleString() : ""
+        ]);
+        exportToCsv("zenflow_withdrawals_export", headers, rows);
+      }
+      setExportStatus(`✓ ${type.toUpperCase()} exported successfully!`);
+    } catch (e) {
+      setExportStatus(`Error exporting: ${e.message}`);
+    }
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = String(evt.target?.result || "");
+      if (file.name.endsWith(".json")) {
+        setJsonText(text);
+      } else {
+        const parsed = parseCsv(text);
+        setJsonText(JSON.stringify(parsed, null, 2));
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImportSubmit = async (e) => {
+    e.preventDefault();
+    if (!jsonText.trim()) return setImportStatus("Please paste JSON data or choose a CSV/JSON file.");
+    setBusy(true);
+    setImportStatus("Importing...");
+    try {
+      let dataToImport;
+      try {
+        dataToImport = JSON.parse(jsonText);
+      } catch (_) {
+        dataToImport = parseCsv(jsonText);
+      }
+      if (!Array.isArray(dataToImport)) {
+        throw new Error("Import data must be a JSON array or CSV format.");
+      }
+
+      let res;
+      if (importType === "users") res = await api.adminImportUsers(dataToImport);
+      else if (importType === "deposits") res = await api.adminImportDeposits(dataToImport);
+      else if (importType === "withdrawals") res = await api.adminImportWithdrawals(dataToImport);
+
+      setImportStatus(`✓ ${res.message || "Import completed successfully!"}`);
+      setJsonText("");
+      if (update) update(() => Promise.resolve());
+    } catch (err) {
+      setImportStatus(`Error: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <h2 className="admin-section-title">🔄 Data Share &amp; Import / Export Hub</h2>
+      <p style={{ color: "#64748b", fontSize: "14px", marginTop: "-8px", marginBottom: "20px" }}>
+        Export platform records to CSV to share with your team or backup data. Import existing users, deposits, and withdrawals seamlessly.
+      </p>
+
+      {/* Export Cards Section */}
+      <div style={{ background: "#ffffff", padding: "18px", borderRadius: "12px", border: "1px solid #e2e8f0", marginBottom: "24px" }}>
+        <h3 style={{ margin: "0 0 12px", fontSize: "16px", color: "#0f172a" }}>📤 Export Data (CSV Downloads)</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px" }}>
+          <button
+            type="button"
+            onClick={() => handleExport("users")}
+            style={{ padding: "14px", background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: "10px", textAlign: "left", cursor: "pointer" }}
+          >
+            <strong style={{ display: "block", color: "#1e293b", fontSize: "14px" }}>👥 Export Users</strong>
+            <small style={{ color: "#64748b" }}>Balances, roles, referrers, plans</small>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleExport("teams")}
+            style={{ padding: "14px", background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: "10px", textAlign: "left", cursor: "pointer" }}
+          >
+            <strong style={{ display: "block", color: "#1e293b", fontSize: "14px" }}>🌳 Export Teams</strong>
+            <small style={{ color: "#64748b" }}>Hierarchy &amp; subordinate referral links</small>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleExport("deposits")}
+            style={{ padding: "14px", background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: "10px", textAlign: "left", cursor: "pointer" }}
+          >
+            <strong style={{ display: "block", color: "#1e293b", fontSize: "14px" }}>💳 Export Deposits</strong>
+            <small style={{ color: "#64748b" }}>All deposit TIDs, amounts, status</small>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleExport("withdrawals")}
+            style={{ padding: "14px", background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: "10px", textAlign: "left", cursor: "pointer" }}
+          >
+            <strong style={{ display: "block", color: "#1e293b", fontSize: "14px" }}>🏧 Export Withdrawals</strong>
+            <small style={{ color: "#64748b" }}>Payout accounts, fees, net amounts</small>
+          </button>
+        </div>
+        {exportStatus && (
+          <p style={{ marginTop: "12px", color: exportStatus.startsWith("✓") ? "#166534" : "#dc2626", fontWeight: 600, fontSize: "13px" }}>
+            {exportStatus}
+          </p>
+        )}
+      </div>
+
+      {/* Import Section */}
+      <div style={{ background: "#ffffff", padding: "18px", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+        <h3 style={{ margin: "0 0 12px", fontSize: "16px", color: "#0f172a" }}>📥 Import Data (CSV or JSON)</h3>
+        <form onSubmit={handleImportSubmit}>
+          <div style={{ display: "flex", gap: "12px", alignItems: "center", marginBottom: "12px", flexWrap: "wrap" }}>
+            <label style={{ fontSize: "13px", fontWeight: 600, color: "#334155" }}>
+              Select Data Type:
+              <select
+                value={importType}
+                onChange={(e) => setImportType(e.target.value)}
+                style={{ marginLeft: "8px", padding: "6px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+              >
+                <option value="users">Users Data (phone, fullName, balances...)</option>
+                <option value="deposits">Deposits Data (phone, amount, tid...)</option>
+                <option value="withdrawals">Withdrawals Data (phone, amount, method...)</option>
+              </select>
+            </label>
+
+            <div>
+              <label style={{ fontSize: "13px", fontWeight: 600, color: "#334155", cursor: "pointer" }}>
+                📁 Upload CSV/JSON File:
+                <input
+                  type="file"
+                  accept=".csv,.json,text/csv,application/json"
+                  onChange={handleFileUpload}
+                  style={{ marginLeft: "8px", fontSize: "12px" }}
+                />
+              </label>
+            </div>
+          </div>
+
+          <textarea
+            placeholder={`Paste CSV text or JSON array here...\nExample for Users: [{"phone":"03001234567","fullName":"Ali Khan","walletBalance":5000,"commissionBalance":1200}]`}
+            rows={7}
+            value={jsonText}
+            onChange={(e) => setJsonText(e.target.value)}
+            style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #cbd5e1", fontSize: "13px", fontFamily: "monospace", boxSizing: "border-box" }}
+          />
+
+          <div style={{ marginTop: "12px", display: "flex", gap: "10px", alignItems: "center" }}>
+            <button
+              type="submit"
+              disabled={busy}
+              style={{ padding: "10px 24px", background: "#008747", color: "#fff", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}
+            >
+              {busy ? "Importing Data…" : `Import ${importType.toUpperCase()}`}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setJsonText(""); setImportStatus(""); }}
+              style={{ padding: "10px 16px", background: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", borderRadius: "8px", cursor: "pointer" }}
+            >
+              Clear
+            </button>
+          </div>
+
+          {importStatus && (
+            <p style={{ marginTop: "12px", color: importStatus.startsWith("✓") ? "#166534" : "#dc2626", fontWeight: 600, fontSize: "13px" }}>
+              {importStatus}
+            </p>
+          )}
+        </form>
+      </div>
     </>
   );
 }
