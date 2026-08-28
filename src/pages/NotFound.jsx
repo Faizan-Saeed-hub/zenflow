@@ -1,0 +1,1 @@
+export default function NotFound(){return <section className="auth-page"><div className="auth-card"><h1>404</h1><p className="muted">Page not found.</p></div></section>}

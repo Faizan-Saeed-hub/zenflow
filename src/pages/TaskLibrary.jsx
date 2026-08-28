@@ -1,0 +1,8 @@
+import { useEffect,useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { api } from "../services/api";
+export default function TaskLibrary(){
+ const navigate=useNavigate(); const [books,setBooks]=useState([]);
+ useEffect(()=>{api.taskLibrary().then(r=>setBooks(r.books||[])).catch(()=>{});},[]);
+ return <section className="tasks-page library-page"><header className="tasks-banner"><div><strong>Book review library</strong><span>Locked reviews open automatically after the required plan is active.</span></div></header><main className="tasks-content"><div className="task-tabs"><button onClick={()=>navigate("/tasks")}>Today</button><button onClick={()=>navigate("/tasks/completed")}>Completed</button><button className="selected">Library</button></div><section className="task-grid">{books.map(book=><article className={`task-card ${book.locked?'locked-task':''}`} key={book.id}><div className="task-image-wrap"><img src={book.image_url} alt={book.title}/><div className="task-image-title"><strong>{book.title}</strong><small>BOOK REVIEW</small></div>{book.locked&&<div className="task-lock-overlay">🔒<span>{book.plan_required} plan required</span></div>}</div><div className="task-card-body"><strong>{book.title}</strong><small>Book Review</small><div className="reward-row"><span>Reward</span><b>Rs. {Number(book.reward).toLocaleString()}</b></div><button className="read-button" disabled={book.locked} onClick={()=>!book.locked&&navigate(`/tasks/view/${book.id}`)}>{book.locked?`🔒 Unlock with ${book.plan_required}`:"▣  Read & review"}</button></div></article>)}</section></main></section>
+}

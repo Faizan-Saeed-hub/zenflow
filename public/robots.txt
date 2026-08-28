@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /api/
+Disallow: /profile
+Disallow: /team
+Disallow: /wallet
+Disallow: /withdraw
+Sitemap: https://zenflowtask.store/sitemap.xml

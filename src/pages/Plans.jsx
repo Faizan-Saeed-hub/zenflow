@@ -1,0 +1,24 @@
+import { useEffect, useState } from 'react';
+import { api } from '../services/api';
+
+const money=(v)=>Number(v||0).toLocaleString('en-US',{maximumFractionDigits:2});
+function PlanIcon({level='ZF'}) { return <div className="plan-logo">ZF<small>{level}</small></div>; }
+function Table({ title, subtitle, headers, rows, note }) { return <section className="plans-table-card"><div className="plans-table-head"><PlanIcon/><div><strong>{title}</strong><span>{subtitle}</span></div></div><div className="table-scroll"><table><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((row,i)=><tr key={i}>{row.map((cell,j)=><td key={j}>{cell}</td>)}</tr>)}</tbody></table></div>{note&&<p className="table-note">{note}</p>}</section>; }
+
+export default function Plans() {
+  const [plansData,setPlansData]=useState([]); const [wallet,setWallet]=useState(0); const [myPlans,setMyPlans]=useState([]); const [active,setActive]=useState([]);
+  const [busy,setBusy]=useState(null); const [message,setMessage]=useState(''); const [error,setError]=useState('');
+  const load=async()=>{const [{plans},{user},mine]=await Promise.all([api.plans(),api.me(),api.myPlans()]);setPlansData(plans||[]);setWallet(Number(user?.wallet_balance||0));setMyPlans(mine.plans||[]);setActive((mine.plans||[]).filter(p=>p.status==='active'));};
+  useEffect(()=>{load().catch(e=>setError(e.message));},[]);
+  const purchase=async(plan)=>{setError('');setMessage('');if(wallet<Number(plan.price)){setError(`Insufficient Personal Wallet balance. You need Rs. ${money(plan.price)} but have Rs. ${money(wallet)}.`);return;}const ok=window.confirm(`Confirm purchase\n\n${plan.name}\nPrice: Rs. ${money(plan.price)}\nPersonal Wallet: Rs. ${money(wallet)}\nRemaining: Rs. ${money(wallet-Number(plan.price))}`);if(!ok)return;setBusy(plan.id);try{const r=await api.purchasePlan(plan.id);setMessage(`✓ Plan purchased successfully! ${plan.name} is now active. Rs. ${money(plan.price)} was deducted. Remaining wallet: Rs. ${money(r.remainingBalance)}.`);await load();}catch(e){setError(e.message)}finally{setBusy(null)}};
+  const matrix=plansData.map(p=>[p.code,money(p.price),p.daily_tasks,money(Number(p.price)/Math.max(1,Number(p.daily_tasks))),money(p.daily_income),money(Number(p.daily_income)*30),money(Number(p.daily_income)*365)]);
+  return <div className="plans-page">{message&&<div className="toast success-toast">{message}</div>}{error&&<div className="toast error-toast">{error}</div>}<main className="plans-content">
+    <section className="wallet-purchase-strip"><div><strong>Personal Wallet</strong><span>Use your deposited balance to buy a plan.</span></div><b>Rs. {money(wallet)}</b></section>
+    {active.length>0&&<section className="active-plan-strip"><strong>✓ Active plans: {active.map(p=>p.code).join(', ')}</strong><span>{active.length===1?'One active plan':'Multiple active plans enabled'}</span></section>}
+    <Table title="RANK AND INCOME" subtitle="THE CURRENCY UNIT IS (PKR)" headers={['Level','Job bond','Tasks','Unit price','Daily income','Monthly income','Annual income']} rows={matrix}/>
+    <section className="trial-card"><PlanIcon level=""/><div><strong>ZF Intern</strong><p>No deposit. 5 tasks per day. Rs. 30 commission per task — up to Rs. 150 per day. The trial period is 3 days.</p></div></section>
+    {plansData.map(plan=>{ const mine=myPlans.find(p=>Number(p.plan_id)===Number(plan.id) && p.status==='active'); return <article className={`plan-card ${plan.status==='coming_soon'?'disabled':''}`} key={plan.id}><PlanIcon level={plan.code}/><div className="plan-card-copy"><h3>{plan.code} · Rs. {money(plan.price)}</h3><p>Complete {plan.daily_tasks} tasks per day. Daily income: Rs. {money(plan.daily_income)}. This plan is valid for one year.</p></div><button className={plan.status==='coming_soon'?'coming-button':'recharge-button'} disabled={plan.status==='coming_soon'||busy===plan.id} onClick={()=>purchase(plan)}>{plan.status==='coming_soon'?'⌁ Coming soon':mine?'Active plan':busy===plan.id?'Purchasing…':'Buy plan →'}</button></article>})}
+    <Table title="FIRST DEPOSIT MANAGEMENT FEE" subtitle="A-12% · B-4% · C-2% (PKR)" headers={['Level','Job bond','A - 12%','B - 4%','C - 2%']} rows={plansData.map(p=>[p.code,money(p.price),money(Number(p.price)*.12),money(Number(p.price)*.04),money(Number(p.price)*.02)])} note="Deposits are credited to the Personal Wallet after approval. Buying a plan deducts the plan price from that wallet."/>
+    <section className="agent-salary-card"><img src="/zenflow-images/plans/agent-salary-plan.png" alt="ZenFlow agent monthly salary plan" /></section>
+  </main></div>;
+}
