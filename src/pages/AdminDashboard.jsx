@@ -7,6 +7,7 @@ const tabs = [
   "Earnings",
   "Users",
   "User Access",
+  "Lucky Wheel",
   "Team",
   "Deposits",
   "Withdrawals",

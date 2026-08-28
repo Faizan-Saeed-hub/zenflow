@@ -4,6 +4,7 @@
   "version": "1.0.21",
   "type": "module",
   "scripts": {
+    "prestart": "vite build",
     "start": "node backend/server.js",
     "dev": "vite",
     "build": "vite build",
