@@ -72,10 +72,17 @@ app.use("/api/lucky-wheel",luckyWheelRoutes);
 const distPath = path.resolve(__dirname, "..", "dist");
 const publicPath = path.resolve(__dirname, "..", "public");
 app.use("/assets", express.static(path.join(distPath, "assets"), { maxAge: "30d", immutable: true }));
-app.use(express.static(distPath, { maxAge: "1d" }));
 app.use(express.static(publicPath, { maxAge: "1d" }));
+app.use(express.static(distPath, {
+  setHeaders: (res, path) => {
+    if (path.endsWith("index.html")) {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    }
+  }
+}));
 app.use((req, res, next) => {
   if (req.method === "GET" && !req.path.startsWith("/api")) {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     return res.sendFile(path.join(distPath, "index.html"), (err) => {
       if (err) next();
     });
