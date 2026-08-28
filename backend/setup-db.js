@@ -257,6 +257,16 @@ async function ensureNewTables() {
       try { await q("ALTER TABLE wallet_transactions ADD INDEX idx_wallet_tx_user_created (user_id, created_at)"); } catch (_) {}
     }
   }
+  if (await hasTable("users")) {
+    if (!(await hasIndex("users", "idx_users_referred_by"))) {
+      try { await q("ALTER TABLE users ADD INDEX idx_users_referred_by (referred_by)"); } catch (_) {}
+    }
+  }
+  if (await hasTable("tasks")) {
+    if (!(await hasIndex("tasks", "idx_tasks_status_id"))) {
+      try { await q("ALTER TABLE tasks ADD INDEX idx_tasks_status_id (status, id)"); } catch (_) {}
+    }
+  }
 }
 
 async function seedAndVerify() {

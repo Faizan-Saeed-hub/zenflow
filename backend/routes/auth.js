@@ -86,13 +86,14 @@ router.post("/login", async (req, res) => {
     );
     if (!rows.length) return res.status(401).json({ message: "Invalid phone or password." });
     const u = rows[0];
-    if (!(await bcrypt.compare(password, u.password_hash))) {
+    const match = await bcrypt.compare(password, u.password_hash);
+    if (!match) {
       return res.status(401).json({ message: "Invalid phone or password." });
     }
 
     // Invalidate any previous session by generating a new unique sessionId
     const sessionId = crypto.randomUUID();
-    await getPool().query("UPDATE users SET session_id=? WHERE id=?", [sessionId, u.id]);
+    getPool().query("UPDATE users SET session_id=? WHERE id=?", [sessionId, u.id]).catch(() => {});
 
     res.json({
       token: tokenFor(u, sessionId),
@@ -107,7 +108,7 @@ router.post("/login", async (req, res) => {
       }
     });
   } catch (e) {
-    console.error(e);
+    console.error("Login error:", e);
     res.status(500).json({ message: "Unable to log in." });
   }
 });

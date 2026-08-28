@@ -211,22 +211,17 @@ router.get("/:id", async (req, res) => {
 });
 
 async function executeInstantTaskComplete(db, taskId, userId) {
-  const conn = await db.getConnection();
   try {
-    await conn.beginTransaction();
-
-    const [[task]] = await conn.query("SELECT * FROM tasks WHERE id=? AND status='active' LIMIT 1 FOR UPDATE", [taskId]);
+    const [[task]] = await db.query("SELECT * FROM tasks WHERE id=? AND status='active' LIMIT 1", [taskId]);
     if (!task) {
-      await conn.rollback();
       return { ok: false, code: 404, message: "Task not found." };
     }
 
-    const plan = await getActivePlan(conn, userId);
-    const trial = await getInternTrialStatus(conn, userId, plan);
+    const plan = await getActivePlan(db, userId);
+    const trial = await getInternTrialStatus(db, userId, plan);
     const isTrialActive = trial.isIntern && !trial.trialExpired;
 
     if (trial.trialExpired) {
-      await conn.rollback();
       return {
         ok: false,
         code: 403,
@@ -235,7 +230,6 @@ async function executeInstantTaskComplete(db, taskId, userId) {
     }
 
     if (!hasTaskAccess(task, plan, isTrialActive)) {
-      await conn.rollback();
       return {
         ok: false,
         code: 403,
@@ -243,24 +237,13 @@ async function executeInstantTaskComplete(db, taskId, userId) {
       };
     }
 
-    const [[existing]] = await conn.query(
-      "SELECT * FROM task_submissions WHERE task_id=? AND user_id=? AND task_date=CURDATE() FOR UPDATE",
-      [taskId, userId]
-    );
-
-    if (existing?.status === "approved") {
-      await conn.rollback();
-      return { ok: false, code: 409, message: "Task already completed today." };
-    }
-
-    const [[count]] = await conn.query(
+    const [[count]] = await db.query(
       "SELECT COUNT(*) completed_today FROM task_submissions WHERE user_id=? AND task_date=CURDATE() AND status='approved'",
       [userId]
     );
 
     const limit = plan ? Math.max(1, Number(plan.daily_tasks || 5)) : 5;
     if (Number(count.completed_today) >= limit) {
-      await conn.rollback();
       return {
         ok: false,
         code: 400,
@@ -270,98 +253,77 @@ async function executeInstantTaskComplete(db, taskId, userId) {
 
     const reward = getUnitReward(plan);
 
-    // Upsert task_submissions directly with approved status (no review or timer required)
-    if (existing) {
-      await conn.query(
-        `UPDATE task_submissions
-         SET status='approved', reward=?, reading_completed_at=COALESCE(reading_completed_at, NOW()), reviewed_at=COALESCE(reviewed_at, NOW()), reward_claimed_at=NOW(), completed_at=NOW()
-         WHERE id=?`,
-        [reward, existing.id]
-      );
-    } else {
-      await conn.query(
-        `INSERT INTO task_submissions (task_id, user_id, status, reward, task_date, reading_completed_at, reviewed_at, reward_claimed_at, completed_at)
-         VALUES (?, ?, 'approved', ?, CURDATE(), NOW(), NOW(), NOW(), NOW())`,
-        [taskId, userId, reward]
-      );
-    }
+    // Upsert task_submissions directly with approved status in 1 fast query
+    await db.query(
+      `INSERT INTO task_submissions (task_id, user_id, status, reward, task_date, reading_completed_at, reviewed_at, reward_claimed_at, completed_at)
+       VALUES (?, ?, 'approved', ?, CURDATE(), NOW(), NOW(), NOW(), NOW())
+       ON DUPLICATE KEY UPDATE
+         status = 'approved',
+         reward = VALUES(reward),
+         reading_completed_at = COALESCE(reading_completed_at, NOW()),
+         reviewed_at = COALESCE(reviewed_at, NOW()),
+         reward_claimed_at = NOW(),
+         completed_at = NOW()`,
+      [taskId, userId, reward]
+    );
 
-    // Direct credit to user's commission wallet and total earned
-    await conn.query(
+    // Credit user's wallet directly
+    await db.query(
       "UPDATE users SET commission_balance = commission_balance + ?, total_earned = total_earned + ? WHERE id = ?",
       [reward, reward, userId]
     );
 
-    // Log wallet transaction
-    await conn.query(
-      "INSERT INTO wallet_transactions (user_id, type, amount, status, reference, note) VALUES (?, 'task_reward', ?, 'completed', ?, ?)",
-      [userId, reward, `TASK-${taskId}`, `Instant reward for completed task: ${task.title}`]
-    );
+    // Run transaction logs and multi-level team commissions asynchronously in background
+    (async () => {
+      try {
+        await Promise.all([
+          db.query(
+            "INSERT INTO wallet_transactions (user_id, type, amount, status, reference, note) VALUES (?, 'task_reward', ?, 'completed', ?, ?)",
+            [userId, reward, `TASK-${taskId}-${Date.now()}`, `Reward for task: ${task.title}`]
+          ),
+          db.query(
+            "INSERT INTO reward_history (user_id, type, detail, amount, status) VALUES (?, 'Task', ?, ?, 'Completed')",
+            [userId, `Completed review: ${task.title}`, reward]
+          ),
+          db.query(
+            "INSERT INTO notifications (user_id, type, title, message) VALUES (?, 'Reward', 'Task Reward Credited', ?)",
+            [userId, `Rs. ${reward.toLocaleString()} has been credited to your Commission Wallet.`]
+          )
+        ]);
 
-    // Log reward history
-    await conn.query(
-      "INSERT INTO reward_history (user_id, type, detail, amount, status) VALUES (?, 'Task', ?, ?, 'Completed')",
-      [userId, `Completed review: ${task.title}`, reward]
-    );
+        // Referral commission chain (Level 1: 10%, Level 2: 3%, Level 3: 1%)
+        const rates = [0.10, 0.03, 0.01];
+        let currentUserId = userId;
+        for (let level = 1; level <= 3; level++) {
+          const [[userRow]] = await db.query("SELECT referred_by FROM users WHERE id = ? LIMIT 1", [currentUserId]);
+          const parentId = userRow?.referred_by;
+          if (!parentId) break;
 
-    // Distribute team commissions: 10% Level A, 3% Level B, 1% Level C
-    const rates = [0.1, 0.03, 0.01];
-    let referrerId = userId;
-    for (let level = 1; level <= 3; level++) {
-      const [[member]] = await conn.query("SELECT referred_by FROM users WHERE id=? FOR UPDATE", [referrerId]);
-      const parentId = member?.referred_by;
-      if (!parentId) break;
-      const commission = Math.round(reward * rates[level - 1] * 100) / 100;
-      if (commission > 0) {
-        const ref = `TEAM-${taskId}-L${level}`;
-        await conn.query("UPDATE users SET commission_balance = commission_balance + ?, total_earned = total_earned + ? WHERE id = ?", [
-          commission,
-          commission,
-          parentId
-        ]);
-        await conn.query("INSERT INTO team_earnings (user_id, member_user_id, level, source_type, amount, reference) VALUES (?, ?, ?, 'task_reward', ?, ?)", [
-          parentId,
-          userId,
-          level,
-          commission,
-          ref
-        ]);
-        await conn.query("INSERT INTO reward_history (user_id, type, detail, amount, status) VALUES (?, 'Referral', ?, ?, 'Completed')", [
-          parentId,
-          `Level ${String.fromCharCode(64 + level)} commission from ${task.title}`,
-          commission
-        ]);
-        await conn.query("INSERT INTO notifications (user_id, type, title, message) VALUES (?, 'Team', ?, ?)", [
-          parentId,
-          "Team commission credited",
-          `Rs. ${commission.toLocaleString()} Level ${String.fromCharCode(64 + level)} commission has been credited from a team task.`
-        ]);
+          const commission = Math.round(reward * rates[level - 1] * 100) / 100;
+          if (commission > 0) {
+            await Promise.all([
+              db.query("UPDATE users SET commission_balance = commission_balance + ?, total_earned = total_earned + ? WHERE id = ?", [commission, commission, parentId]),
+              db.query("INSERT INTO team_earnings (user_id, member_user_id, level, source_type, amount, reference) VALUES (?, ?, ?, 'task_reward', ?, ?)", [parentId, userId, level, commission, `TEAM-${taskId}-L${level}`]),
+              db.query("INSERT INTO reward_history (user_id, type, detail, amount, status) VALUES (?, 'Referral', ?, ?, 'Completed')", [parentId, `Level ${String.fromCharCode(64 + level)} commission from ${task.title}`, commission]),
+              db.query("INSERT INTO notifications (user_id, type, title, message) VALUES (?, 'Team', 'Team Commission Credited', ?)", [parentId, `Rs. ${commission.toLocaleString()} Level ${String.fromCharCode(64 + level)} commission credited.`])
+            ]);
+          }
+          currentUserId = parentId;
+        }
+      } catch (bgErr) {
+        console.error("Task background logging error:", bgErr);
       }
-      referrerId = parentId;
-    }
-
-    await conn.query("INSERT INTO notifications (user_id, type, title, message) VALUES (?, 'Reward', ?, ?)", [
-      userId,
-      "Reward credited",
-      `Rs. ${reward.toLocaleString()} has been credited to your Commission Wallet.`
-    ]);
-
-    const [[updatedUser]] = await conn.query("SELECT commission_balance, total_earned FROM users WHERE id=?", [userId]);
-
-    await conn.commit();
+    })();
 
     return {
       ok: true,
       reward,
       status: "approved",
-      balance: updatedUser?.commission_balance,
       message: `✓ Task completed! Rs. ${Number(reward).toLocaleString()} credited directly to your wallet.`
     };
   } catch (err) {
-    await conn.rollback();
+    console.error("Instant task execution error:", err);
     throw err;
-  } finally {
-    conn.release();
   }
 }
 

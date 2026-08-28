@@ -39,20 +39,12 @@ export default function Tasks() {
     if (busyTaskId) return;
     setBusyTaskId(taskId);
     setError("");
-    const startTime = Date.now();
 
     try {
       const res = await api.completeTask(taskId);
       const earned = Number(res.reward || rewardAmount || 30);
-      
-      // Ensure completion takes exactly 2 seconds
-      const elapsed = Date.now() - startTime;
-      const waitTime = Math.max(0, 2000 - elapsed);
-      if (waitTime > 0) {
-        await new Promise((resolve) => setTimeout(resolve, waitTime));
-      }
 
-      // Optimistic update
+      // Instant optimistic update
       setTasks((prev) =>
         prev.map((t) => (t.id === taskId ? { ...t, submission_status: "approved" } : t))
       );
@@ -192,7 +184,7 @@ export default function Tasks() {
                       cursor: done ? "default" : "pointer"
                     }}
                   >
-                    {done ? "✓ Completed (+Rs. " + Number(task.reward || 30).toLocaleString() + ")" : isBusy ? "⏳ Submitting review (2s)..." : "⚡ Submit Task (+Rs. " + Number(task.reward || 30).toLocaleString() + ")"}
+                    {done ? "✓ Completed (+Rs. " + Number(task.reward || 30).toLocaleString() + ")" : isBusy ? "Submitting…" : "⚡ Submit Task (+Rs. " + Number(task.reward || 30).toLocaleString() + ")"}
                   </button>
                 </div>
               </article>
