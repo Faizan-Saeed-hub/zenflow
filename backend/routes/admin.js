@@ -1139,7 +1139,7 @@ router.post("/lucky-wheel/give-spin", async (req, res) => {
 
     await db.query(
       `INSERT INTO notifications (user_id, type, title, message)
-       VALUES (?, 'Bonus', '🎉 Lucky Spin Received!', 'You received a free Lucky Draw Spin! Go to Lucky Draw to spin and claim your cash prize.')`,
+       VALUES (?, 'Reward', '🎉 Lucky Spin Received!', 'You received a free Lucky Draw Spin! Go to Lucky Draw to spin and claim your cash prize.')`,
       [userId]
     );
 

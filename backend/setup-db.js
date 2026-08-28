@@ -164,6 +164,14 @@ async function ensureCoreColumns() {
     await ensureColumn("announcements", "link_label", "VARCHAR(100) NOT NULL DEFAULT 'Learn More'");
   }
 
+  if (await hasTable("notifications")) {
+    try { await q("ALTER TABLE notifications MODIFY COLUMN type VARCHAR(50) NOT NULL DEFAULT 'System'"); } catch (_) {}
+  }
+
+  if (await hasTable("reward_history")) {
+    try { await q("ALTER TABLE reward_history MODIFY COLUMN type VARCHAR(50) NOT NULL DEFAULT 'Adjustment'"); } catch (_) {}
+  }
+
   if (await hasTable("tasks")) {
     await ensureColumn("tasks", "image_url", "LONGTEXT NULL");
     try { await q("ALTER TABLE tasks MODIFY COLUMN image_url LONGTEXT NULL"); } catch (_) {}

@@ -121,7 +121,7 @@ router.post("/spin", requireAuth, async (req, res) => {
     // Log into reward_history if exists
     try {
       await conn.query(
-        "INSERT INTO reward_history (user_id, type, amount, status, date) VALUES (?, 'Lucky Draw', ?, 'approved', CURDATE())",
+        "INSERT INTO reward_history (user_id, type, detail, amount, status) VALUES (?, 'Adjustment', 'Lucky Draw Wheel Cash Prize', ?, 'Completed')",
         [userId, amountWon]
       );
     } catch (_) {}
