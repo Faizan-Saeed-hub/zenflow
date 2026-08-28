@@ -357,6 +357,8 @@ async function seedAndVerify() {
     ON DUPLICATE KEY UPDATE
       title=VALUES(title),
       image_url=VALUES(image_url),
+      reward=30.00,
+      plan_required=NULL,
       status='active';
   `);
 

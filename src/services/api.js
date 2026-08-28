@@ -466,29 +466,6 @@ export const api = {
     return request(`/admin/earnings${query ? `?${query}` : ""}`);
   },
 
-  adminExportUsers: () => request("/admin/export/users"),
-  adminExportTeams: () => request("/admin/export/teams"),
-  adminExportDeposits: () => request("/admin/export/deposits"),
-  adminExportWithdrawals: () => request("/admin/export/withdrawals"),
-
-  adminImportUsers: (users) =>
-    request("/admin/import/users", {
-      method: "POST",
-      body: JSON.stringify({ users })
-    }),
-
-  adminImportDeposits: (deposits) =>
-    request("/admin/import/deposits", {
-      method: "POST",
-      body: JSON.stringify({ deposits })
-    }),
-
-  adminImportWithdrawals: (withdrawals) =>
-    request("/admin/import/withdrawals", {
-      method: "POST",
-      body: JSON.stringify({ withdrawals })
-    }),
-
   // Lucky Wheel / Lucky Draw Client Endpoints
   luckyWheelStatus: () => request("/lucky-wheel"),
   luckyWheelSpin: () =>
