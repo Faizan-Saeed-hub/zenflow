@@ -227,8 +227,10 @@ export const api = {
       body: JSON.stringify(p)
     }),
 
-  adminDeposits: () =>
-    request("/admin/deposits"),
+  adminDeposits: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/admin/deposits${query ? `?${query}` : ""}`);
+  },
 
   adminUpdateDeposit: (id, p) =>
     request(`/admin/deposits/${id}`, {
@@ -236,8 +238,10 @@ export const api = {
       body: JSON.stringify(p)
     }),
 
-  adminWithdrawals: () =>
-    request("/admin/withdrawals"),
+  adminWithdrawals: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/admin/withdrawals${query ? `?${query}` : ""}`);
+  },
 
   adminUpdateWithdrawal: (id, p) =>
     request(`/admin/withdrawals/${id}`, {

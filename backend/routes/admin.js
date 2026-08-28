@@ -15,8 +15,8 @@ router.get("/dashboard", async (_req,res) => {
   const [[deposits]]=await db.query("SELECT COUNT(*) total FROM deposits WHERE status='pending'");
   const [[pendingLoans]]=await db.query("SELECT COUNT(*) total FROM loans WHERE status='pending'");
   const [[supports]]=await db.query("SELECT COUNT(*) total FROM support_requests WHERE status!='closed'");
-  const [[wallet]]=await db.query("SELECT COALESCE(SUM(wallet_balance),0) total FROM users WHERE role='user'");
-  res.json({stats:{users:Number(users.total),plans:Number(plans.total),tasks:Number(tasks.total),pendingWithdrawals:Number(withdrawals.total),pendingDeposits:Number(deposits.total),pendingLoans:Number(pendingLoans.total),openSupport:Number(supports.total),walletBalance:Number(wallet.total)}});
+  const [[depositTotal]]=await db.query("SELECT COALESCE(SUM(amount),0) total FROM deposits WHERE status='approved'");
+  res.json({stats:{users:Number(users.total),plans:Number(plans.total),tasks:Number(tasks.total),pendingWithdrawals:Number(withdrawals.total),pendingDeposits:Number(deposits.total),pendingLoans:Number(pendingLoans.total),openSupport:Number(supports.total),walletBalance:Number(depositTotal.total)}});
 });
 
 router.get("/users", async (req, res) => {
@@ -211,13 +211,50 @@ router.patch("/tasks/:id", async (req,res) => {
   res.json({message:"Task updated."});
 });
 
-router.get("/deposits", async (_req,res) => {
-  const [rows]=await getPool().query(`
-    SELECT d.id,d.user_id,u.phone,u.full_name,d.plan_code,d.amount,d.payment_method,d.tid,
-           d.wallet_number,d.proof_data,d.status,d.submitted_at,d.reviewed_at
-      FROM deposits d JOIN users u ON u.id=d.user_id
-     ORDER BY d.submitted_at DESC LIMIT 200`);
-  res.json({deposits:rows});
+router.get("/deposits", async (req, res) => {
+  const q = String(req.query.q || "").trim();
+  const status = String(req.query.status || "").trim();
+  const startDate = req.query.startDate ? String(req.query.startDate).trim() : null;
+  const endDate = req.query.endDate ? String(req.query.endDate).trim() : null;
+  const sort = String(req.query.sort || "newest").trim();
+  const db = getPool();
+
+  let orderBy = "d.submitted_at DESC";
+  if (sort === "oldest") orderBy = "d.submitted_at ASC";
+  else if (sort === "amount_desc") orderBy = "d.amount DESC";
+  else if (sort === "amount_asc") orderBy = "d.amount ASC";
+
+  const conditions = ["1=1"];
+  const params = [];
+
+  if (q) {
+    conditions.push("(u.phone LIKE ? OR u.full_name LIKE ? OR d.tid LIKE ? OR d.wallet_number LIKE ?)");
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+  }
+  if (status && status !== "all") {
+    conditions.push("d.status = ?");
+    params.push(status);
+  }
+  if (startDate) {
+    conditions.push("DATE(d.submitted_at) >= ?");
+    params.push(startDate);
+  }
+  if (endDate) {
+    conditions.push("DATE(d.submitted_at) <= ?");
+    params.push(endDate);
+  }
+
+  const whereClause = conditions.join(" AND ");
+  const [rows] = await db.query(
+    `SELECT d.id, d.user_id, u.phone, u.full_name, d.plan_code, d.amount, d.payment_method, d.tid,
+            d.wallet_number, d.proof_data, d.status, d.submitted_at, d.reviewed_at
+     FROM deposits d
+     JOIN users u ON u.id = d.user_id
+     WHERE ${whereClause}
+     ORDER BY ${orderBy} LIMIT 300`,
+    params
+  );
+  res.json({ deposits: rows });
 });
 
 router.patch("/deposits/:id", async (req,res) => {
@@ -254,15 +291,51 @@ router.patch("/deposits/:id", async (req,res) => {
   } finally { c.release(); }
 });
 
-router.get("/withdrawals", async (_req,res) => {
-  const [rows]=await getPool().query(
-    `SELECT w.id,w.user_id,u.phone,u.full_name,w.wallet_type,w.amount,w.fee,w.net_amount,w.status,
-            w.requested_at,pa.method,pa.account_name,pa.account_number
-     FROM withdrawals w JOIN users u ON u.id=w.user_id
-     LEFT JOIN payout_accounts pa ON pa.id=w.payout_account_id
-     ORDER BY w.requested_at DESC LIMIT 200`
+router.get("/withdrawals", async (req, res) => {
+  const q = String(req.query.q || "").trim();
+  const status = String(req.query.status || "").trim();
+  const startDate = req.query.startDate ? String(req.query.startDate).trim() : null;
+  const endDate = req.query.endDate ? String(req.query.endDate).trim() : null;
+  const sort = String(req.query.sort || "newest").trim();
+  const db = getPool();
+
+  let orderBy = "w.requested_at DESC";
+  if (sort === "oldest") orderBy = "w.requested_at ASC";
+  else if (sort === "amount_desc") orderBy = "w.amount DESC";
+  else if (sort === "amount_asc") orderBy = "w.amount ASC";
+
+  const conditions = ["1=1"];
+  const params = [];
+
+  if (q) {
+    conditions.push("(u.phone LIKE ? OR u.full_name LIKE ? OR pa.account_number LIKE ? OR pa.account_name LIKE ?)");
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+  }
+  if (status && status !== "all") {
+    conditions.push("w.status = ?");
+    params.push(status);
+  }
+  if (startDate) {
+    conditions.push("DATE(w.requested_at) >= ?");
+    params.push(startDate);
+  }
+  if (endDate) {
+    conditions.push("DATE(w.requested_at) <= ?");
+    params.push(endDate);
+  }
+
+  const whereClause = conditions.join(" AND ");
+  const [rows] = await db.query(
+    `SELECT w.id, w.user_id, u.phone, u.full_name, w.wallet_type, w.amount, w.fee, w.net_amount, w.status,
+            w.requested_at, w.processed_at, pa.method, pa.account_name, pa.account_number
+     FROM withdrawals w
+     JOIN users u ON u.id = w.user_id
+     LEFT JOIN payout_accounts pa ON pa.id = w.payout_account_id
+     WHERE ${whereClause}
+     ORDER BY ${orderBy} LIMIT 300`,
+    params
   );
-  res.json({withdrawals:rows});
+  res.json({ withdrawals: rows });
 });
 router.patch("/withdrawals/:id", async (req,res) => {
   const {status}=req.body||{};

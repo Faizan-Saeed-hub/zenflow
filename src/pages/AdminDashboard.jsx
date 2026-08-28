@@ -76,6 +76,23 @@ export function processImageUpload(file, maxWidth = 1200, quality = 0.85) {
   });
 }
 
+export function exportToCsv(filename, headers, dataRows) {
+  const escapeCsv = (val) => `"${String(val ?? "").replace(/"/g, '""')}"`;
+  const csvContent = [
+    headers.map(escapeCsv).join(","),
+    ...dataRows.map((row) => row.map(escapeCsv).join(","))
+  ].join("\n");
+
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", `${filename}_${new Date().toISOString().slice(0, 10)}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [tab, setTab] = useState("Overview");
@@ -98,8 +115,8 @@ export default function AdminDashboard() {
       if (section === "Announcements") setData({ announcements: (await api.adminGetAnnouncements()).announcements || [] });
       if (section === "Plans") setData({ plans: (await api.adminPlans()).plans });
       if (section === "Tasks") setData({ tasks: (await api.adminTasks()).tasks });
-      if (section === "Deposits") setData({ deposits: (await api.adminDeposits()).deposits });
-      if (section === "Withdrawals") setData({ withdrawals: (await api.adminWithdrawals()).withdrawals });
+      if (section === "Deposits") setData({ deposits: (await api.adminDeposits(extraParams)).deposits });
+      if (section === "Withdrawals") setData({ withdrawals: (await api.adminWithdrawals(extraParams)).withdrawals });
       if (section === "Loans") setData({ loans: (await api.adminLoans()).loans });
       if (section === "News") setData({ news: (await api.adminNews()).news });
       if (section === "Support") setData({ support: (await api.adminSupport()).requests });
@@ -161,8 +178,8 @@ export default function AdminDashboard() {
       {tab === "Announcements" && <Announcements rows={data.announcements || []} update={update} />}
       {tab === "Plans" && <Plans rows={data.plans || []} update={update} />}
       {tab === "Tasks" && <Tasks rows={data.tasks || []} update={update} />}
-      {tab === "Deposits" && <Deposits rows={data.deposits || []} update={update} />}
-      {tab === "Withdrawals" && <Withdrawals rows={data.withdrawals || []} update={update} />}
+      {tab === "Deposits" && <Deposits rows={data.deposits || []} update={update} onFilter={(p) => load("Deposits", p)} />}
+      {tab === "Withdrawals" && <Withdrawals rows={data.withdrawals || []} update={update} onFilter={(p) => load("Withdrawals", p)} />}
       {tab === "Loans" && <Loans rows={data.loans || []} update={update} />}
       {tab === "News" && <News rows={data.news || []} update={update} />}
       {tab === "Support" && <Support rows={data.support || []} update={update} />}
@@ -176,7 +193,7 @@ function Overview({ stats = {}, onSelectTab }) {
     { label: "Users", val: stats.users, tab: "Users" },
     { label: "Active tasks", val: stats.tasks, tab: "Tasks" },
     { label: "Plans", val: stats.plans, tab: "Plans" },
-    { label: "Wallet balance", val: `Rs. ${Number(stats.walletBalance || 0).toFixed(2)}`, tab: "Users" },
+    { label: "Approved deposits (Wallet)", val: `Rs. ${Number(stats.walletBalance || 0).toFixed(2)}`, tab: "Deposits" },
     { label: "Pending deposits", val: stats.pendingDeposits, tab: "Deposits" },
     { label: "Pending withdrawals", val: stats.pendingWithdrawals, tab: "Withdrawals" },
     { label: "Pending loans", val: stats.pendingLoans, tab: "Loans" },
@@ -1264,11 +1281,133 @@ function Tasks({ rows, update }) {
   );
 }
 
-function Deposits({ rows, update }) {
+function Deposits({ rows, update, onFilter }) {
+  const [q, setQ] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [status, setStatus] = useState("all");
+  const [sort, setSort] = useState("newest");
+
+  const applyFilter = (e) => {
+    e?.preventDefault();
+    onFilter({ q: q.trim(), startDate, endDate, status, sort });
+  };
+
+  const resetFilter = () => {
+    setQ("");
+    setStartDate("");
+    setEndDate("");
+    setStatus("all");
+    setSort("newest");
+    onFilter({});
+  };
+
+  const handleExportCsv = () => {
+    const headers = ["ID", "User Phone", "User Name", "Plan Code", "Amount (PKR)", "Payment Method", "TID", "Wallet Number", "Status", "Date & Time"];
+    const dataRows = rows.map((r) => [
+      r.id,
+      r.phone,
+      r.full_name || "",
+      r.plan_code || "",
+      r.amount,
+      r.payment_method || "",
+      r.tid || "",
+      r.wallet_number || "",
+      r.status,
+      r.submitted_at ? new Date(r.submitted_at).toLocaleString() : ""
+    ]);
+    exportToCsv("zenflow_deposits", headers, dataRows);
+  };
+
   return (
     <>
-      <h2 className="admin-section-title">Recharge / Deposits</h2>
-      <Table headers={["User", "Plan / TID", "Amount", "Proof", "Status", "Action"]}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "10px" }}>
+        <h2 className="admin-section-title" style={{ margin: 0 }}>Recharge / Deposits ({rows.length} records)</h2>
+        <button
+          type="button"
+          onClick={handleExportCsv}
+          style={{ background: "#008747", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: 600, cursor: "pointer", fontSize: "13px" }}
+        >
+          💾 Save / Export CSV
+        </button>
+      </div>
+
+      {/* Date & Time + Search Filter Form */}
+      <form
+        onSubmit={applyFilter}
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "8px",
+          alignItems: "center",
+          background: "#f4f8f5",
+          border: "1px solid #d7e6dc",
+          borderRadius: "12px",
+          padding: "12px",
+          marginBottom: "16px"
+        }}
+      >
+        <input
+          type="text"
+          placeholder="Search phone, name, TID..."
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          style={{ flex: "1 1 180px", minWidth: "140px", padding: "8px 12px", borderRadius: "8px", border: "1px solid #c8dbce" }}
+        />
+        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <small style={{ fontWeight: 600 }}>From:</small>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            style={{ padding: "7px 10px", borderRadius: "8px", border: "1px solid #c8dbce" }}
+          />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <small style={{ fontWeight: 600 }}>To:</small>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            style={{ padding: "7px 10px", borderRadius: "8px", border: "1px solid #c8dbce" }}
+          />
+        </div>
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          style={{ padding: "8px 10px", borderRadius: "8px", border: "1px solid #c8dbce" }}
+        >
+          <option value="all">All Statuses</option>
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+        </select>
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value)}
+          style={{ padding: "8px 10px", borderRadius: "8px", border: "1px solid #c8dbce" }}
+        >
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="amount_desc">Highest amount</option>
+          <option value="amount_asc">Lowest amount</option>
+        </select>
+        <button
+          type="submit"
+          style={{ padding: "8px 16px", borderRadius: "8px", background: "#008747", color: "#fff", border: "none", cursor: "pointer", fontWeight: 600 }}
+        >
+          Filter
+        </button>
+        <button
+          type="button"
+          onClick={resetFilter}
+          style={{ padding: "8px 14px", borderRadius: "8px", background: "#e2ede6", color: "#254030", border: "none", cursor: "pointer" }}
+        >
+          Reset
+        </button>
+      </form>
+
+      <Table headers={["User", "Plan / TID", "Amount", "Date & Time", "Proof", "Status", "Action"]}>
         {rows.map((r) => (
           <tr key={r.id}>
             <td>
@@ -1280,6 +1419,9 @@ function Deposits({ rows, update }) {
               <small>{r.payment_method} · TID {r.tid}</small>
             </td>
             <td>Rs. {Number(r.amount).toLocaleString()}</td>
+            <td>
+              <small>{r.submitted_at ? new Date(r.submitted_at).toLocaleString() : "—"}</small>
+            </td>
             <td>
               {r.proof_data ? (
                 <button
@@ -1296,17 +1438,30 @@ function Deposits({ rows, update }) {
                 "—"
               )}
             </td>
-            <td>{r.status}</td>
+            <td>
+              <span
+                style={{
+                  padding: "3px 8px",
+                  borderRadius: "6px",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  background: r.status === "approved" ? "#dcfce7" : r.status === "pending" ? "#fef3c7" : "#fee2e2",
+                  color: r.status === "approved" ? "#166534" : r.status === "pending" ? "#92400e" : "#dc2626"
+                }}
+              >
+                {r.status}
+              </span>
+            </td>
             <td>
               {r.status === "pending" && (
-                <>
+                <div style={{ display: "flex", gap: "6px" }}>
                   <button onClick={() => update(() => api.adminUpdateDeposit(r.id, { status: "approved" }))}>
                     Approve
                   </button>
-                  <button onClick={() => update(() => api.adminUpdateDeposit(r.id, { status: "rejected" }))}>
+                  <button onClick={() => update(() => api.adminUpdateDeposit(r.id, { status: "rejected" }))} style={{ background: "#dc2626", color: "#fff" }}>
                     Reject
                   </button>
-                </>
+                </div>
               )}
             </td>
           </tr>
@@ -1316,35 +1471,177 @@ function Deposits({ rows, update }) {
   );
 }
 
-function Withdrawals({ rows, update }) {
+function Withdrawals({ rows, update, onFilter }) {
+  const [q, setQ] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [status, setStatus] = useState("all");
+  const [sort, setSort] = useState("newest");
+
+  const applyFilter = (e) => {
+    e?.preventDefault();
+    onFilter({ q: q.trim(), startDate, endDate, status, sort });
+  };
+
+  const resetFilter = () => {
+    setQ("");
+    setStartDate("");
+    setEndDate("");
+    setStatus("all");
+    setSort("newest");
+    onFilter({});
+  };
+
+  const handleExportCsv = () => {
+    const headers = ["ID", "User Phone", "User Name", "Wallet Type", "Amount (PKR)", "Fee (PKR)", "Net Amount (PKR)", "Payout Method", "Account Holder", "Account Number", "Status", "Date & Time"];
+    const dataRows = rows.map((r) => [
+      r.id,
+      r.phone,
+      r.full_name || "",
+      r.wallet_type || "",
+      r.amount,
+      r.fee || 0,
+      r.net_amount || r.amount,
+      r.method || "",
+      r.account_name || "",
+      r.account_number || "",
+      r.status,
+      r.requested_at ? new Date(r.requested_at).toLocaleString() : ""
+    ]);
+    exportToCsv("zenflow_withdrawals", headers, dataRows);
+  };
+
   return (
     <>
-      <h2 className="admin-section-title">Withdrawals</h2>
-      <Table headers={["User", "Payout", "Amount", "Status", "Action"]}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "10px" }}>
+        <h2 className="admin-section-title" style={{ margin: 0 }}>Withdrawals ({rows.length} records)</h2>
+        <button
+          type="button"
+          onClick={handleExportCsv}
+          style={{ background: "#008747", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: 600, cursor: "pointer", fontSize: "13px" }}
+        >
+          💾 Save / Export CSV
+        </button>
+      </div>
+
+      {/* Date & Time + Search Filter Form */}
+      <form
+        onSubmit={applyFilter}
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "8px",
+          alignItems: "center",
+          background: "#f4f8f5",
+          border: "1px solid #d7e6dc",
+          borderRadius: "12px",
+          padding: "12px",
+          marginBottom: "16px"
+        }}
+      >
+        <input
+          type="text"
+          placeholder="Search user, phone, account..."
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          style={{ flex: "1 1 180px", minWidth: "140px", padding: "8px 12px", borderRadius: "8px", border: "1px solid #c8dbce" }}
+        />
+        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <small style={{ fontWeight: 600 }}>From:</small>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            style={{ padding: "7px 10px", borderRadius: "8px", border: "1px solid #c8dbce" }}
+          />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <small style={{ fontWeight: 600 }}>To:</small>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            style={{ padding: "7px 10px", borderRadius: "8px", border: "1px solid #c8dbce" }}
+          />
+        </div>
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          style={{ padding: "8px 10px", borderRadius: "8px", border: "1px solid #c8dbce" }}
+        >
+          <option value="all">All Statuses</option>
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="paid">Paid</option>
+          <option value="rejected">Rejected</option>
+        </select>
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value)}
+          style={{ padding: "8px 10px", borderRadius: "8px", border: "1px solid #c8dbce" }}
+        >
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="amount_desc">Highest amount</option>
+          <option value="amount_asc">Lowest amount</option>
+        </select>
+        <button
+          type="submit"
+          style={{ padding: "8px 16px", borderRadius: "8px", background: "#008747", color: "#fff", border: "none", cursor: "pointer", fontWeight: 600 }}
+        >
+          Filter
+        </button>
+        <button
+          type="button"
+          onClick={resetFilter}
+          style={{ padding: "8px 14px", borderRadius: "8px", background: "#e2ede6", color: "#254030", border: "none", cursor: "pointer" }}
+        >
+          Reset
+        </button>
+      </form>
+
+      <Table headers={["User", "Payout Account", "Amount", "Date & Time", "Status", "Action"]}>
         {rows.map((r) => (
           <tr key={r.id}>
             <td>
               <strong>{r.full_name || r.phone}</strong>
-              <small>{r.wallet_type} wallet</small>
+              <small>{r.wallet_type} wallet · {r.phone}</small>
             </td>
             <td>
               {r.method || "No account"} · {r.account_number || ""}
+              {r.account_name && <small style={{ display: "block", color: "#64748b" }}>{r.account_name}</small>}
             </td>
             <td>
               Rs. {Number(r.amount).toFixed(2)}
-              <small>Net Rs. {Number(r.net_amount).toFixed(2)}</small>
+              <small>Net Rs. {Number(r.net_amount || r.amount).toFixed(2)}</small>
             </td>
-            <td>{r.status}</td>
+            <td>
+              <small>{r.requested_at ? new Date(r.requested_at).toLocaleString() : "—"}</small>
+            </td>
+            <td>
+              <span
+                style={{
+                  padding: "3px 8px",
+                  borderRadius: "6px",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  background: r.status === "paid" || r.status === "approved" ? "#dcfce7" : r.status === "pending" ? "#fef3c7" : "#fee2e2",
+                  color: r.status === "paid" || r.status === "approved" ? "#166534" : r.status === "pending" ? "#92400e" : "#dc2626"
+                }}
+              >
+                {r.status}
+              </span>
+            </td>
             <td>
               {r.status === "pending" && (
-                <>
+                <div style={{ display: "flex", gap: "6px" }}>
                   <button onClick={() => update(() => api.adminUpdateWithdrawal(r.id, { status: "approved" }))}>
                     Approve
                   </button>
-                  <button onClick={() => update(() => api.adminUpdateWithdrawal(r.id, { status: "rejected" }))}>
+                  <button onClick={() => update(() => api.adminUpdateWithdrawal(r.id, { status: "rejected" }))} style={{ background: "#dc2626", color: "#fff" }}>
                     Reject
                   </button>
-                </>
+                </div>
               )}
             </td>
           </tr>
