@@ -254,23 +254,28 @@ export const api = {
       body: JSON.stringify(p)
     }),
 
-  adminNews: () =>
-    request("/admin/news"),
+  getSupportInquiries: () =>
+    request("/content/support"),
 
-  adminCreateNews: (p) =>
-    request("/admin/news", {
+  createSupportInquiry: (p) =>
+    request("/content/support", {
       method: "POST",
-      body: JSON.stringify(p)
-    }),
-
-  adminUpdateNews: (id, p) =>
-    request(`/admin/news/${id}`, {
-      method: "PATCH",
       body: JSON.stringify(p)
     }),
 
   adminSupport: () =>
     request("/admin/support"),
+
+  adminReplySupport: (id, p) =>
+    request(`/admin/support/${id}/reply`, {
+      method: "POST",
+      body: JSON.stringify(p)
+    }),
+
+  adminDeleteSupport: (id) =>
+    request(`/admin/support/${id}`, {
+      method: "DELETE"
+    }),
 
   adminBankSettings: async () => {
     try { return await request("/admin/bank-settings"); }
@@ -319,6 +324,55 @@ export const api = {
     }),
   adminDeleteAnnouncement: (id) =>
     request(`/admin/announcements/${id}`, {
+      method: "DELETE"
+    }),
+
+  adminNews: () =>
+    request("/admin/news"),
+
+  adminCreateNews: (p) =>
+    request("/admin/news", {
+      method: "POST",
+      body: JSON.stringify(p)
+    }),
+
+  adminUpdateNews: (id, p) =>
+    request(`/admin/news/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(p)
+    }),
+
+  adminDeleteNews: (id) =>
+    request(`/admin/news/${id}`, {
+      method: "DELETE"
+    }),
+
+  adminGetPlans: () =>
+    request("/admin/plans"),
+
+  adminUpdatePlan: (id, p) =>
+    request(`/admin/plans/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(p)
+    }),
+
+  adminGetTasks: () =>
+    request("/admin/tasks"),
+
+  adminCreateTask: (p) =>
+    request("/admin/tasks", {
+      method: "POST",
+      body: JSON.stringify(p)
+    }),
+
+  adminUpdateTask: (id, p) =>
+    request(`/admin/tasks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(p)
+    }),
+
+  adminDeleteTask: (id) =>
+    request(`/admin/tasks/${id}`, {
       method: "DELETE"
     })
 };

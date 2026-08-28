@@ -19,10 +19,20 @@ router.get("/announcements/active", async (_req, res) => {
 
 router.get("/news", async (_req, res) => {
   const [rows] = await getPool().query(
-    `SELECT id,title,summary,body,image_url,published_at
+    `SELECT id, title, summary, body, image_url, category, published_at
      FROM news WHERE status='published' ORDER BY published_at DESC, id DESC LIMIT 50`
   );
   res.json({ news: rows });
+});
+
+router.get("/news/:id", async (req, res) => {
+  const [[item]] = await getPool().query(
+    `SELECT id, title, summary, body, image_url, category, published_at
+     FROM news WHERE id=? AND status='published' LIMIT 1`,
+    [req.params.id]
+  );
+  if (!item) return res.status(404).json({ message: "Article not found." });
+  res.json({ news: item });
 });
 
 router.get("/funds", async (req, res) => {
@@ -65,14 +75,23 @@ router.post("/loans", async (req, res) => {
   res.status(201).json({ id: result.insertId, message:"Loan request submitted for review." });
 });
 
-router.post("/support", async (req, res) => {
-  const { subject="Support request", message="" } = req.body || {};
-  if (!message.trim()) return res.status(400).json({message:"Please describe your issue."});
-  const [result] = await getPool().query(
-    "INSERT INTO support_requests(user_id,subject,message) VALUES(?,?,?)",
-    [req.user.id, subject, message.trim()]
+router.get("/support", async (req, res) => {
+  const [rows] = await getPool().query(
+    `SELECT id, subject, message, admin_reply, status, created_at, replied_at
+     FROM support_requests WHERE user_id=? ORDER BY created_at DESC`,
+    [req.user.id]
   );
-  res.status(201).json({id: result.insertId, message:"Support request submitted."});
+  res.json({ requests: rows });
+});
+
+router.post("/support", async (req, res) => {
+  const { subject="Inquiry", message="" } = req.body || {};
+  if (!message.trim()) return res.status(400).json({message:"Please describe your issue or question."});
+  const [result] = await getPool().query(
+    "INSERT INTO support_requests(user_id,subject,message,status) VALUES(?,?,?,'open')",
+    [req.user.id, subject.trim(), message.trim()]
+  );
+  res.status(201).json({id: result.insertId, message:"Support inquiry submitted. Our team will review and reply shortly."});
 });
 
 export default router;

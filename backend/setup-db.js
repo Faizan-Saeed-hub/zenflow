@@ -141,6 +141,28 @@ async function ensureCoreColumns() {
     await ensureColumn("deposits", "submitted_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP");
     await ensureColumn("deposits", "reviewed_at", "TIMESTAMP NULL");
   }
+
+  if (await hasTable("support_requests")) {
+    await ensureColumn("support_requests", "admin_reply", "LONGTEXT NULL");
+    await ensureColumn("support_requests", "replied_at", "TIMESTAMP NULL");
+    try { await q("ALTER TABLE support_requests MODIFY COLUMN status VARCHAR(30) NOT NULL DEFAULT 'open'"); } catch (_) {}
+  }
+
+  if (await hasTable("news")) {
+    await ensureColumn("news", "image_url", "LONGTEXT NULL");
+    await ensureColumn("news", "category", "VARCHAR(80) NOT NULL DEFAULT 'Company'");
+    try { await q("ALTER TABLE news MODIFY COLUMN status ENUM('draft','published') NOT NULL DEFAULT 'published'"); } catch (_) {}
+  }
+
+  if (await hasTable("announcements")) {
+    await ensureColumn("announcements", "image_url", "LONGTEXT NULL");
+    await ensureColumn("announcements", "link_url", "VARCHAR(500) NULL");
+    await ensureColumn("announcements", "link_label", "VARCHAR(100) NOT NULL DEFAULT 'Learn More'");
+  }
+
+  if (await hasTable("tasks")) {
+    await ensureColumn("tasks", "image_url", "LONGTEXT NULL");
+  }
 }
 
 async function migrateTaskSubmissionIndexes() {
@@ -218,6 +240,44 @@ async function seedAndVerify() {
         )
       `);
       console.log("Seeded initial active announcement.");
+    }
+  }
+
+  if (await hasTable("news")) {
+    const [newsCount] = await q("SELECT COUNT(*) AS c FROM news");
+    if (!newsCount[0].c) {
+      await q(`
+        INSERT INTO news (title, summary, body, image_url, category, status, published_at)
+        VALUES
+        (
+          'ZenFlow Platform Milestone: 100,000 Active Daily Readers',
+          'ZenFlow celebrates a record milestone as reader engagement and daily book review activity soar across all tiers.',
+          'We are thrilled to announce that ZenFlow has officially crossed 100,000 active daily book reviewers! Our platform continues to deliver reliable daily income, seamless team commissions, and robust wealth fund management. Thank you to our global community for making this journey extraordinary.',
+          '/zenflow-images/home-banners/event-community.jpg',
+          'Milestone',
+          'published',
+          NOW()
+        ),
+        (
+          'New High-Yield Wealth Funds & VIP Plan Upgrades Released',
+          'Explore higher returns and daily compounding interest with newly accredited literary review funds.',
+          'ZenFlow has partnered with leading global publishers to bring exclusive wealth funds and VIP reward allocations. Check the Wealth and Plans tab to explore higher daily yields and enhanced commission tiers.',
+          '/zenflow-images/home-banners/event-chamber.jpg',
+          'Updates',
+          'published',
+          NOW()
+        ),
+        (
+          'Official Community WhatsApp Channel Now Live',
+          'Join our verified official WhatsApp channel for real-time announcements, platform updates, and tips.',
+          'Stay informed with verified news, daily bonus announcements, and community insights. Connect directly through our official WhatsApp channel: https://whatsapp.com/channel/0029VbDc9Pj4inopcJjVrt1D',
+          '/zenflow-images/home-banners/event-leadership.jpg',
+          'Community',
+          'published',
+          NOW()
+        )
+      `);
+      console.log("Seeded initial news articles.");
     }
   }
 

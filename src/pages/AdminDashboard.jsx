@@ -498,29 +498,63 @@ function AdminTeam({ data = {} }) {
 }
 
 function Announcements({ rows, update }) {
+  const [editingId, setEditingId] = useState(null);
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
-  const [linkLabel, setLinkLabel] = useState("Join Telegram Channel");
+  const [linkLabel, setLinkLabel] = useState("Join WhatsApp Channel");
   const [active, setActive] = useState(true);
+
+  const startEdit = (r) => {
+    setEditingId(r.id);
+    setTitle(r.title || "");
+    setMessage(r.message || "");
+    setImageUrl(r.image_url || "");
+    setLinkUrl(r.link_url || "");
+    setLinkLabel(r.link_label || "Learn More");
+    setActive(Boolean(r.active));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setTitle("");
+    setMessage("");
+    setImageUrl("");
+    setLinkUrl("");
+    setLinkLabel("Join WhatsApp Channel");
+    setActive(true);
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return alert("Please select a valid image file.");
+    if (file.size > 5 * 1024 * 1024) return alert("Image must be smaller than 5 MB.");
+    const reader = new FileReader();
+    reader.onload = () => setImageUrl(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  };
 
   const submit = async (e) => {
     e?.preventDefault();
     if (!title.trim() || !message.trim()) return alert("Title and message are required.");
     await update(async () => {
-      await api.adminCreateAnnouncement({
+      const payload = {
         title: title.trim(),
         message: message.trim(),
         imageUrl: imageUrl.trim() || null,
         linkUrl: linkUrl.trim() || null,
         linkLabel: linkLabel.trim() || "Learn More",
         active: active ? 1 : 0
-      });
-      setTitle("");
-      setMessage("");
-      setImageUrl("");
-      setLinkUrl("");
+      };
+      if (editingId) {
+        await api.adminUpdateAnnouncement(editingId, payload);
+      } else {
+        await api.adminCreateAnnouncement(payload);
+      }
+      cancelEdit();
     });
   };
 
@@ -528,7 +562,7 @@ function Announcements({ rows, update }) {
     <>
       <h2 className="admin-section-title">Announcements Popup Management</h2>
       <div className="admin-note">
-        Create announcements that will pop up automatically for users when they open the website. Users can read the message, click links, and tap "OK / Understood" to enter the app.
+        Create announcements that pop up automatically for users when they open the website. Users can view the banner image, read the text, tap action links, and dismiss.
       </div>
 
       <form
@@ -537,18 +571,33 @@ function Announcements({ rows, update }) {
           background: "#f7fbf9",
           border: "1px solid #d4e6dc",
           borderRadius: "14px",
-          padding: "16px",
-          marginBottom: "20px",
+          padding: "18px",
+          marginBottom: "24px",
           display: "grid",
-          gap: "10px"
+          gap: "12px"
         }}
       >
-        <h3 style={{ margin: "0 0 6px", fontSize: "15px" }}>Create New Announcement</h3>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h3 style={{ margin: 0, fontSize: "16px", color: "#008747" }}>
+            {editingId ? `Edit Announcement #${editingId}` : "Create New Announcement"}
+          </h3>
+          {editingId && (
+            <button
+              type="button"
+              onClick={cancelEdit}
+              style={{ background: "#e5e7eb", color: "#374151", padding: "4px 12px", borderRadius: "6px", border: "none", fontSize: "12px", cursor: "pointer" }}
+            >
+              Cancel Edit
+            </button>
+          )}
+        </div>
+
         <input
-          placeholder="Announcement title (e.g. Official Update / Telegram Group)"
+          placeholder="Announcement title (e.g. Official WhatsApp Channel / System Update)"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           required
+          style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #c9d8d0", fontSize: "14px" }}
         />
         <textarea
           placeholder="Announcement message text (supports multiline text)"
@@ -556,46 +605,91 @@ function Announcements({ rows, update }) {
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           required
+          style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #c9d8d0", fontSize: "14px", resize: "vertical" }}
         />
+
+        {/* Image Options: Upload File OR Direct URL */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", background: "#ffffff", padding: "12px", borderRadius: "10px", border: "1px solid #e0eae4" }}>
+          <div>
+            <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#374151", marginBottom: "4px" }}>
+              Upload Image (from Device)
+            </label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleImageUpload}
+              style={{ fontSize: "12px" }}
+            />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#374151", marginBottom: "4px" }}>
+              Or Image URL
+            </label>
+            <input
+              placeholder="https://..."
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              style={{ width: "100%", padding: "8px 10px", borderRadius: "6px", border: "1px solid #c9d8d0", fontSize: "13px" }}
+            />
+          </div>
+          {imageUrl && (
+            <div style={{ gridColumn: "span 2", display: "flex", alignItems: "center", gap: "12px", marginTop: "4px" }}>
+              <img src={imageUrl} alt="Announcement preview" style={{ height: "60px", maxWidth: "160px", objectFit: "cover", borderRadius: "6px", border: "1px solid #d1d5db" }} />
+              <button
+                type="button"
+                onClick={() => setImageUrl("")}
+                style={{ background: "#fee2e2", color: "#dc2626", border: "1px solid #fecaca", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+              >
+                Remove Image
+              </button>
+            </div>
+          )}
+        </div>
+
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
           <input
-            placeholder="Image URL (optional, e.g. https://...)"
-            value={imageUrl}
-            onChange={(e) => setImageUrl(e.target.value)}
-          />
-          <input
-            placeholder="Action link URL (e.g. https://t.me/faizdex)"
+            placeholder="Action link URL (e.g. https://whatsapp.com/channel/...)"
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
+            style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #c9d8d0", fontSize: "14px" }}
           />
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "10px", alignItems: "center" }}>
           <input
-            placeholder="Button text (e.g. Join Telegram Channel)"
+            placeholder="Button text (e.g. Join Official WhatsApp)"
             value={linkLabel}
             onChange={(e) => setLinkLabel(e.target.value)}
+            style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #c9d8d0", fontSize: "14px" }}
           />
-          <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", cursor: "pointer" }}>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "4px" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", cursor: "pointer", fontWeight: 600 }}>
             <input
               type="checkbox"
               checked={active}
               onChange={(e) => setActive(e.target.checked)}
             />
-            Active
+            Active (Pop up for users)
           </label>
           <button
             type="submit"
-            style={{ padding: "10px 20px", background: "#008747", color: "#fff", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}
+            style={{ padding: "10px 24px", background: "#008747", color: "#fff", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}
           >
-            Publish Announcement
+            {editingId ? "Save Changes" : "Publish Announcement"}
           </button>
         </div>
       </form>
 
-      <h3 style={{ fontSize: "16px", margin: "16px 0 8px" }}>Published Announcements</h3>
-      <Table headers={["Title & Message", "Link / Button", "Status", "Date", "Actions"]}>
+      <h3 style={{ fontSize: "16px", margin: "16px 0 8px" }}>All Announcements</h3>
+      <Table headers={["Banner", "Title & Message", "Link / Button", "Status", "Date", "Actions"]}>
         {rows.map((r) => (
           <tr key={r.id}>
+            <td style={{ width: "80px" }}>
+              {r.image_url ? (
+                <img src={r.image_url} alt="" style={{ width: "60px", height: "40px", objectFit: "cover", borderRadius: "4px" }} />
+              ) : (
+                <span style={{ color: "#9ca3af", fontSize: "11px" }}>No img</span>
+              )}
+            </td>
             <td>
               <strong>{r.title}</strong>
               <p style={{ margin: "4px 0 0", fontSize: "12px", color: "#45594f", maxHeight: "60px", overflow: "hidden" }}>{r.message}</p>
@@ -619,6 +713,13 @@ function Announcements({ rows, update }) {
             </td>
             <td>
               <div style={{ display: "flex", gap: "6px" }}>
+                <button
+                  type="button"
+                  onClick={() => startEdit(r)}
+                  style={{ background: "#0284c7", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+                >
+                  Edit
+                </button>
                 <button onClick={() => update(() => api.adminUpdateAnnouncement(r.id, { active: !r.active }))}>
                   {r.active ? "Deactivate" : "Activate"}
                 </button>
@@ -642,31 +743,178 @@ function Announcements({ rows, update }) {
 }
 
 function Plans({ rows, update }) {
+  const [editingPlan, setEditingPlan] = useState(null);
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
+  const [dailyIncome, setDailyIncome] = useState("");
+  const [dailyTasks, setDailyTasks] = useState("");
+  const [commissionRate, setCommissionRate] = useState("");
+  const [status, setStatus] = useState("active");
+
+  const startEdit = (p) => {
+    setEditingPlan(p);
+    setName(p.name || p.code);
+    setPrice(String(p.price || 0));
+    setDailyIncome(String(p.daily_income || 0));
+    setDailyTasks(String(p.daily_tasks || 5));
+    setCommissionRate(String(p.commission_rate || 0.1));
+    setStatus(p.status || "active");
+  };
+
+  const savePlan = async (e) => {
+    e?.preventDefault();
+    if (!editingPlan) return;
+    await update(async () => {
+      await api.adminUpdatePlan(editingPlan.id, {
+        name: name.trim(),
+        price: Number(price),
+        dailyIncome: Number(dailyIncome),
+        dailyTasks: Number(dailyTasks),
+        commissionRate: Number(commissionRate),
+        status
+      });
+      setEditingPlan(null);
+    });
+  };
+
   return (
     <>
-      <h2 className="admin-section-title">Plans</h2>
-      <Table headers={["Plan", "Price", "Daily income", "Status", "Action"]}>
+      <h2 className="admin-section-title">VIP &amp; Upgrade Plans Management</h2>
+      <div className="admin-note">
+        Customize pricing, daily review tasks, daily income rates, and lock/unlock status for all membership plans.
+      </div>
+
+      {editingPlan && (
+        <form
+          onSubmit={savePlan}
+          style={{
+            background: "#eff6ff",
+            border: "1px solid #bfdbfe",
+            borderRadius: "14px",
+            padding: "16px",
+            marginBottom: "20px",
+            display: "grid",
+            gap: "10px"
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ margin: 0, fontSize: "16px", color: "#1e40af" }}>
+              Edit Plan: {editingPlan.code} ({editingPlan.name})
+            </h3>
+            <button
+              type="button"
+              onClick={() => setEditingPlan(null)}
+              style={{ background: "#e5e7eb", border: "none", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+            >
+              Cancel
+            </button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
+            <label style={{ fontSize: "12px", fontWeight: 600 }}>
+              Plan Name
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #93c5fd", marginTop: "4px" }}
+              />
+            </label>
+            <label style={{ fontSize: "12px", fontWeight: 600 }}>
+              Price (Rs.)
+              <input
+                type="number"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #93c5fd", marginTop: "4px" }}
+              />
+            </label>
+            <label style={{ fontSize: "12px", fontWeight: 600 }}>
+              Daily Income (Rs.)
+              <input
+                type="number"
+                value={dailyIncome}
+                onChange={(e) => setDailyIncome(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #93c5fd", marginTop: "4px" }}
+              />
+            </label>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
+            <label style={{ fontSize: "12px", fontWeight: 600 }}>
+              Daily Tasks Count
+              <input
+                type="number"
+                value={dailyTasks}
+                onChange={(e) => setDailyTasks(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #93c5fd", marginTop: "4px" }}
+              />
+            </label>
+            <label style={{ fontSize: "12px", fontWeight: 600 }}>
+              Commission Rate (e.g. 0.10 for 10%)
+              <input
+                type="number"
+                step="0.01"
+                value={commissionRate}
+                onChange={(e) => setCommissionRate(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #93c5fd", marginTop: "4px" }}
+              />
+            </label>
+            <label style={{ fontSize: "12px", fontWeight: 600 }}>
+              Status / Visibility
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #93c5fd", marginTop: "4px", background: "#fff" }}
+              >
+                <option value="active">Active (Available)</option>
+                <option value="coming_soon">Coming Soon (Locked)</option>
+              </select>
+            </label>
+          </div>
+          <button
+            type="submit"
+            style={{ padding: "10px 20px", background: "#2563eb", color: "#fff", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer", justifySelf: "flex-end", marginTop: "6px" }}
+          >
+            Save Plan Settings
+          </button>
+        </form>
+      )}
+
+      <Table headers={["Plan Code", "Name", "Price", "Daily Income", "Daily Tasks", "Status", "Subscribers", "Actions"]}>
         {rows.map((r) => (
           <tr key={r.id}>
             <td>
-              <strong>{r.name}</strong>
-              <small>{r.code}</small>
+              <strong>{r.code}</strong>
             </td>
-            <td>Rs. {Number(r.price).toFixed(2)}</td>
-            <td>Rs. {Number(r.daily_income).toFixed(2)}</td>
-            <td>{r.status}</td>
+            <td>{r.name}</td>
+            <td>Rs. {Number(r.price).toLocaleString()}</td>
+            <td>Rs. {Number(r.daily_income).toLocaleString()}</td>
+            <td>{r.daily_tasks || 5} tasks/day</td>
             <td>
-              <button
-                onClick={() =>
-                  update(() =>
-                    api.adminUpdatePlan(r.id, {
-                      status: r.status === "active" ? "coming_soon" : "active"
-                    })
-                  )
-                }
-              >
-                {r.status === "active" ? "Disable" : "Enable"}
-              </button>
+              <span style={{ padding: "3px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: 700, background: r.status === "active" ? "#dcfce7" : "#fef3c7", color: r.status === "active" ? "#166534" : "#92400e" }}>
+                {r.status === "active" ? "Active" : "Locked / Coming Soon"}
+              </span>
+            </td>
+            <td>{r.active_subscribers || 0}</td>
+            <td>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button
+                  type="button"
+                  onClick={() => startEdit(r)}
+                  style={{ background: "#2563eb", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() =>
+                    update(() =>
+                      api.adminUpdatePlan(r.id, {
+                        status: r.status === "active" ? "coming_soon" : "active"
+                      })
+                    )
+                  }
+                >
+                  {r.status === "active" ? "Lock" : "Unlock"}
+                </button>
+              </div>
             </td>
           </tr>
         ))}
@@ -676,31 +924,258 @@ function Plans({ rows, update }) {
 }
 
 function Tasks({ rows, update }) {
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [reward, setReward] = useState("30");
+  const [planRequired, setPlanRequired] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [status, setStatus] = useState("active");
+
+  const startEdit = (t) => {
+    setEditingTaskId(t.id);
+    setTitle(t.title || "");
+    setDescription(t.description || "");
+    setReward(String(t.reward || 30));
+    setPlanRequired(t.plan_required || "");
+    setImageUrl(t.image_url || "");
+    setStatus(t.status || "active");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const cancelEdit = () => {
+    setEditingTaskId(null);
+    setTitle("");
+    setDescription("");
+    setReward("30");
+    setPlanRequired("");
+    setImageUrl("");
+    setStatus("active");
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return alert("Please select an image file.");
+    if (file.size > 5 * 1024 * 1024) return alert("Image must be smaller than 5 MB.");
+    const reader = new FileReader();
+    reader.onload = () => setImageUrl(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  };
+
+  const submit = async (e) => {
+    e?.preventDefault();
+    if (!title.trim()) return alert("Task title is required.");
+    await update(async () => {
+      const payload = {
+        title: title.trim(),
+        description: description.trim(),
+        reward: Number(reward || 30),
+        planRequired: planRequired || null,
+        imageUrl: imageUrl.trim() || null,
+        status
+      };
+      if (editingTaskId) {
+        await api.adminUpdateTask(editingTaskId, payload);
+      } else {
+        await api.adminCreateTask(payload);
+      }
+      cancelEdit();
+    });
+  };
+
   return (
     <>
-      <h2 className="admin-section-title">Tasks / Books</h2>
-      <Table headers={["Book", "Reward", "Plan", "Status", "Action"]}>
+      <h2 className="admin-section-title">Daily Review Tasks / Books Management</h2>
+      <div className="admin-note">
+        Add new book review tasks, assign plan requirements (Intern or F1–F9), upload cover images, adjust rewards, and manage task availability.
+      </div>
+
+      <form
+        onSubmit={submit}
+        style={{
+          background: "#f8fafc",
+          border: "1px solid #cbd5e1",
+          borderRadius: "14px",
+          padding: "18px",
+          marginBottom: "24px",
+          display: "grid",
+          gap: "12px"
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h3 style={{ margin: 0, fontSize: "16px", color: "#0284c7" }}>
+            {editingTaskId ? `Edit Task #${editingTaskId}` : "Add New Task"}
+          </h3>
+          {editingTaskId && (
+            <button
+              type="button"
+              onClick={cancelEdit}
+              style={{ background: "#e2e8f0", border: "none", padding: "4px 12px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+            >
+              Cancel Edit
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "10px" }}>
+          <input
+            placeholder="Book / Task Title (e.g. The Glass Orchard)"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+            style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #94a3b8", fontSize: "14px" }}
+          />
+          <input
+            type="number"
+            step="0.01"
+            placeholder="Reward (Rs.)"
+            value={reward}
+            onChange={(e) => setReward(e.target.value)}
+            required
+            style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #94a3b8", fontSize: "14px" }}
+          />
+          <select
+            value={planRequired}
+            onChange={(e) => setPlanRequired(e.target.value)}
+            style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #94a3b8", fontSize: "14px", background: "#fff" }}
+          >
+            <option value="">All Users (Intern &amp; Above)</option>
+            <option value="F1">F1 Required</option>
+            <option value="F2">F2 Required</option>
+            <option value="F3">F3 Required</option>
+            <option value="F4">F4 Required</option>
+            <option value="F5">F5 Required</option>
+            <option value="F6">F6 Required</option>
+            <option value="F7">F7 Required</option>
+            <option value="F8">F8 Required</option>
+            <option value="F9">F9 Required</option>
+          </select>
+        </div>
+
+        <textarea
+          placeholder="Task passage / review reading text (this is what the user reads before rating)..."
+          rows={4}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #94a3b8", fontSize: "14px", resize: "vertical" }}
+        />
+
+        {/* Cover Image Upload or URL */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", background: "#ffffff", padding: "12px", borderRadius: "10px", border: "1px solid #e2e8f0" }}>
+          <div>
+            <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>
+              Upload Cover Image (File)
+            </label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleImageUpload}
+              style={{ fontSize: "12px" }}
+            />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>
+              Or Image URL
+            </label>
+            <input
+              placeholder="https://... or /zenflow-images/..."
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              style={{ width: "100%", padding: "8px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px" }}
+            />
+          </div>
+          {imageUrl && (
+            <div style={{ gridColumn: "span 2", display: "flex", alignItems: "center", gap: "12px", marginTop: "4px" }}>
+              <img src={imageUrl} alt="Cover preview" style={{ height: "60px", maxWidth: "60px", objectFit: "cover", borderRadius: "6px", border: "1px solid #cbd5e1" }} />
+              <button
+                type="button"
+                onClick={() => setImageUrl("")}
+                style={{ background: "#fee2e2", color: "#dc2626", border: "1px solid #fecaca", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+              >
+                Clear Image
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", background: "#fff" }}
+          >
+            <option value="active">Active (Visible)</option>
+            <option value="inactive">Inactive (Disabled)</option>
+          </select>
+          <button
+            type="submit"
+            style={{ padding: "10px 24px", background: "#0284c7", color: "#fff", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}
+          >
+            {editingTaskId ? "Update Task" : "Add Task to Hall"}
+          </button>
+        </div>
+      </form>
+
+      <Table headers={["Cover", "Book / Task", "Reward", "Plan Required", "Status", "Submissions", "Actions"]}>
         {rows.map((r) => (
           <tr key={r.id}>
+            <td style={{ width: "60px" }}>
+              {r.image_url ? (
+                <img src={r.image_url} alt="" style={{ width: "45px", height: "45px", objectFit: "cover", borderRadius: "6px" }} />
+              ) : (
+                <span style={{ color: "#94a3b8", fontSize: "11px" }}>No img</span>
+              )}
+            </td>
             <td>
               <strong>{r.title}</strong>
-              <small>{r.description?.slice(0, 90) || ""}</small>
+              <small style={{ display: "block", color: "#64748b", marginTop: "2px", maxHeight: "40px", overflow: "hidden" }}>
+                {r.description?.slice(0, 90) || ""}
+              </small>
             </td>
             <td>Rs. {Number(r.reward).toFixed(2)}</td>
-            <td>{r.plan_required || "Any"}</td>
-            <td>{r.status}</td>
             <td>
-              <button
-                onClick={() =>
-                  update(() =>
-                    api.adminUpdateTask(r.id, {
-                      status: r.status === "active" ? "inactive" : "active"
-                    })
-                  )
-                }
-              >
-                {r.status === "active" ? "Disable" : "Enable"}
-              </button>
+              <span style={{ padding: "2px 6px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "#f1f5f9" }}>
+                {r.plan_required || "All (Intern)"}
+              </span>
+            </td>
+            <td>
+              <span style={{ padding: "3px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: 700, background: r.status === "active" ? "#dcfce7" : "#f1f5f9", color: r.status === "active" ? "#166534" : "#64748b" }}>
+                {r.status}
+              </span>
+            </td>
+            <td>{r.total_submissions || 0}</td>
+            <td>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button
+                  type="button"
+                  onClick={() => startEdit(r)}
+                  style={{ background: "#0284c7", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() =>
+                    update(() =>
+                      api.adminUpdateTask(r.id, {
+                        status: r.status === "active" ? "inactive" : "active"
+                      })
+                    )
+                  }
+                >
+                  {r.status === "active" ? "Disable" : "Enable"}
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm("Permanently delete this task?")) {
+                      update(() => api.adminDeleteTask(r.id));
+                    }
+                  }}
+                  style={{ background: "#dc2626", color: "#fff" }}
+                >
+                  Delete
+                </button>
+              </div>
             </td>
           </tr>
         ))}
@@ -827,54 +1302,252 @@ function Loans({ rows, update }) {
 }
 
 function News({ rows, update }) {
+  const [editingNewsId, setEditingNewsId] = useState(null);
   const [title, setTitle] = useState("");
+  const [category, setCategory] = useState("Company");
   const [summary, setSummary] = useState("");
+  const [body, setBody] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [status, setStatus] = useState("published");
+
+  const startEdit = (n) => {
+    setEditingNewsId(n.id);
+    setTitle(n.title || "");
+    setCategory(n.category || "Company");
+    setSummary(n.summary || "");
+    setBody(n.body || n.summary || "");
+    setImageUrl(n.image_url || "");
+    setStatus(n.status || "published");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const cancelEdit = () => {
+    setEditingNewsId(null);
+    setTitle("");
+    setCategory("Company");
+    setSummary("");
+    setBody("");
+    setImageUrl("");
+    setStatus("published");
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return alert("Please select an image file.");
+    if (file.size > 5 * 1024 * 1024) return alert("Image must be smaller than 5 MB.");
+    const reader = new FileReader();
+    reader.onload = () => setImageUrl(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  };
+
+  const submit = async (e) => {
+    e?.preventDefault();
+    if (!title.trim()) return alert("News title is required.");
+    await update(async () => {
+      const payload = {
+        title: title.trim(),
+        category: category.trim(),
+        summary: summary.trim(),
+        body: body.trim() || summary.trim(),
+        imageUrl: imageUrl.trim() || null,
+        status
+      };
+      if (editingNewsId) {
+        await api.adminUpdateNews(editingNewsId, payload);
+      } else {
+        await api.adminCreateNews(payload);
+      }
+      cancelEdit();
+    });
+  };
+
   return (
     <>
-      <h2 className="admin-section-title">News</h2>
-      <div className="admin-form">
+      <h2 className="admin-section-title">News Channel Management</h2>
+      <div className="admin-note">
+        Publish platform news, partner milestones, and company updates. These appear directly in the user website News Center (/news).
+      </div>
+
+      <form
+        onSubmit={submit}
+        style={{
+          background: "#faf5ff",
+          border: "1px solid #e9d5ff",
+          borderRadius: "14px",
+          padding: "18px",
+          marginBottom: "24px",
+          display: "grid",
+          gap: "12px"
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h3 style={{ margin: 0, fontSize: "16px", color: "#7e22ce" }}>
+            {editingNewsId ? `Edit News Article #${editingNewsId}` : "Publish New Article"}
+          </h3>
+          {editingNewsId && (
+            <button
+              type="button"
+              onClick={cancelEdit}
+              style={{ background: "#e5e7eb", border: "none", padding: "4px 12px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+            >
+              Cancel Edit
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr", gap: "10px" }}>
+          <input
+            placeholder="Article Headline / Title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+            style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #d8b4fe", fontSize: "14px" }}
+          />
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #d8b4fe", fontSize: "14px", background: "#fff" }}
+          >
+            <option value="Company">Company</option>
+            <option value="Milestone">Milestone</option>
+            <option value="Updates">Updates</option>
+            <option value="Community">Community</option>
+            <option value="Security">Security</option>
+          </select>
+        </div>
+
         <input
-          placeholder="News title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-        <input
-          placeholder="Short summary"
+          placeholder="Short summary (shown on article card preview)"
           value={summary}
           onChange={(e) => setSummary(e.target.value)}
+          style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #d8b4fe", fontSize: "14px" }}
         />
-        <button
-          onClick={() =>
-            update(async () => {
-              await api.adminCreateNews({ title, summary, body: summary, status: "published" });
-              setTitle("");
-              setSummary("");
-            })
-          }
-        >
-          Publish News
-        </button>
-      </div>
-      <Table>
+
+        <textarea
+          placeholder="Full article body (shown when user opens article modal)..."
+          rows={5}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #d8b4fe", fontSize: "14px", resize: "vertical" }}
+        />
+
+        {/* Cover Image Upload or URL */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", background: "#ffffff", padding: "12px", borderRadius: "10px", border: "1px solid #f3e8ff" }}>
+          <div>
+            <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#581c87", marginBottom: "4px" }}>
+              Upload Banner Image (File)
+            </label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleImageUpload}
+              style={{ fontSize: "12px" }}
+            />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#581c87", marginBottom: "4px" }}>
+              Or Image URL
+            </label>
+            <input
+              placeholder="https://..."
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              style={{ width: "100%", padding: "8px 10px", borderRadius: "6px", border: "1px solid #d8b4fe", fontSize: "13px" }}
+            />
+          </div>
+          {imageUrl && (
+            <div style={{ gridColumn: "span 2", display: "flex", alignItems: "center", gap: "12px", marginTop: "4px" }}>
+              <img src={imageUrl} alt="News banner preview" style={{ height: "60px", maxWidth: "120px", objectFit: "cover", borderRadius: "6px", border: "1px solid #d8b4fe" }} />
+              <button
+                type="button"
+                onClick={() => setImageUrl("")}
+                style={{ background: "#fee2e2", color: "#dc2626", border: "1px solid #fecaca", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+              >
+                Clear Image
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid #d8b4fe", fontSize: "13px", background: "#fff" }}
+          >
+            <option value="published">Published (Live on Website)</option>
+            <option value="draft">Draft (Hidden)</option>
+          </select>
+          <button
+            type="submit"
+            style={{ padding: "10px 24px", background: "#7e22ce", color: "#fff", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}
+          >
+            {editingNewsId ? "Save Article Changes" : "Publish Article to News Center"}
+          </button>
+        </div>
+      </form>
+
+      <Table headers={["Banner", "Title & Summary", "Category", "Status", "Date", "Actions"]}>
         {rows.map((r) => (
           <tr key={r.id}>
+            <td style={{ width: "80px" }}>
+              {r.image_url ? (
+                <img src={r.image_url} alt="" style={{ width: "65px", height: "45px", objectFit: "cover", borderRadius: "6px" }} />
+              ) : (
+                <span style={{ color: "#9ca3af", fontSize: "11px" }}>No img</span>
+              )}
+            </td>
             <td>
               <strong>{r.title}</strong>
-              <small>{r.summary}</small>
+              <small style={{ display: "block", color: "#6b7280", marginTop: "2px", maxHeight: "36px", overflow: "hidden" }}>
+                {r.summary}
+              </small>
             </td>
-            <td>{r.status}</td>
             <td>
-              <button
-                onClick={() =>
-                  update(() =>
-                    api.adminUpdateNews(r.id, {
-                      status: r.status === "published" ? "draft" : "published"
-                    })
-                  )
-                }
-              >
-                {r.status === "published" ? "Unpublish" : "Publish"}
-              </button>
+              <span style={{ padding: "3px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: 700, background: "#f3e8ff", color: "#7e22ce" }}>
+                {r.category || "News"}
+              </span>
+            </td>
+            <td>
+              <span style={{ padding: "3px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: 700, background: r.status === "published" ? "#dcfce7" : "#f3f4f6", color: r.status === "published" ? "#166534" : "#4b5563" }}>
+                {r.status}
+              </span>
+            </td>
+            <td>
+              <small>{r.published_at ? new Date(r.published_at).toLocaleDateString() : "Draft"}</small>
+            </td>
+            <td>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button
+                  type="button"
+                  onClick={() => startEdit(r)}
+                  style={{ background: "#7e22ce", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() =>
+                    update(() =>
+                      api.adminUpdateNews(r.id, {
+                        status: r.status === "published" ? "draft" : "published"
+                      })
+                    )
+                  }
+                >
+                  {r.status === "published" ? "Unpublish" : "Publish"}
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm("Delete this news article?")) {
+                      update(() => api.adminDeleteNews(r.id));
+                    }
+                  }}
+                  style={{ background: "#dc2626", color: "#fff" }}
+                >
+                  Delete
+                </button>
+              </div>
             </td>
           </tr>
         ))}
@@ -896,13 +1569,16 @@ function BankSettings({ rows, update }) {
         active: 1
       }
   );
+
   useEffect(() => {
     const m = {};
     mergedRows.forEach((r) => (m[r.method] = { ...r }));
     setDraft(m);
   }, [rows]);
+
   const change = (method, key, val) =>
     setDraft((d) => ({ ...d, [method]: { ...(d[method] || {}), [key]: val } }));
+
   const upload = (method, e) => {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -912,11 +1588,16 @@ function BankSettings({ rows, update }) {
     rd.onload = () => change(method, "qr_data", String(rd.result || ""));
     rd.readAsDataURL(f);
   };
+
+  const removeQr = (method) => {
+    change(method, "qr_data", "");
+  };
+
   return (
     <>
       <h2 className="admin-section-title">Bank / Recharge Settings</h2>
       <div className="admin-note">
-        Change the receiving account and QR code used on the public Recharge page. Changes apply immediately after saving.
+        Change the receiving account, upload payment QR codes, or remove QR codes used on the public Recharge page. Changes apply immediately after saving.
       </div>
       <div className="bank-settings-grid">
         {mergedRows.map((r) => {
@@ -951,14 +1632,27 @@ function BankSettings({ rows, update }) {
                 />
               </label>
               <label>
-                QR code
+                Upload QR code
                 <input
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
                   onChange={(e) => upload(r.method, e)}
                 />
               </label>
-              {d.qr_data && <img className="admin-qr-preview" src={d.qr_data} alt="QR preview" />}
+              {d.qr_data ? (
+                <div style={{ margin: "8px 0", display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <img className="admin-qr-preview" src={d.qr_data} alt="QR preview" />
+                  <button
+                    type="button"
+                    onClick={() => removeQr(r.method)}
+                    style={{ background: "#fee2e2", color: "#dc2626", border: "1px solid #fecaca", padding: "6px 12px", borderRadius: "6px", fontSize: "12px", cursor: "pointer", fontWeight: 600 }}
+                  >
+                    ✕ Remove QR Code
+                  </button>
+                </div>
+              ) : (
+                <div style={{ color: "#9ca3af", fontSize: "12px", margin: "4px 0" }}>No QR code uploaded</div>
+              )}
               <button
                 onClick={() =>
                   update(() =>
@@ -983,32 +1677,146 @@ function BankSettings({ rows, update }) {
 }
 
 function Support({ rows, update }) {
+  const [replyTicket, setReplyTicket] = useState(null);
+  const [replyText, setReplyText] = useState("");
+
+  const startReply = (ticket) => {
+    setReplyTicket(ticket);
+    setReplyText(ticket.admin_reply || "");
+  };
+
+  const sendReply = async (e) => {
+    e?.preventDefault();
+    if (!replyText.trim()) return alert("Please type a reply message.");
+    await update(async () => {
+      await api.adminReplySupport(replyTicket.id, { reply: replyText.trim() });
+      setReplyTicket(null);
+      setReplyText("");
+    });
+  };
+
   return (
     <>
-      <h2 className="admin-section-title">Support</h2>
-      <Table headers={["Subject", "Status", "Action"]}>
-        {rows.map((r) => (
-          <tr key={r.id}>
-            <td>
-              <strong>{r.subject}</strong>
-              <small>{r.full_name || r.phone || "Guest"}</small>
-            </td>
-            <td>{r.status}</td>
-            <td>
-              <button
-                onClick={() =>
-                  update(() =>
-                    api.adminUpdateSupport(r.id, {
-                      status: r.status === "closed" ? "open" : "closed"
-                    })
-                  )
-                }
-              >
-                {r.status === "closed" ? "Reopen" : "Close"}
-              </button>
-            </td>
-          </tr>
-        ))}
+      <h2 className="admin-section-title">Support Inquiries &amp; User Chat</h2>
+      <div className="admin-note">
+        Review user inquiries submitted from the website Help &amp; Support page. You can reply directly to each inquiry, and your response will appear immediately on the user's screen.
+      </div>
+
+      {replyTicket && (
+        <form
+          onSubmit={sendReply}
+          style={{
+            background: "#ecfdf5",
+            border: "1px solid #a7f3d0",
+            borderRadius: "14px",
+            padding: "18px",
+            marginBottom: "20px",
+            display: "grid",
+            gap: "10px"
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ margin: 0, fontSize: "16px", color: "#065f46" }}>
+              Reply to Ticket #{replyTicket.id} · {replyTicket.phone || "User"}
+            </h3>
+            <button
+              type="button"
+              onClick={() => setReplyTicket(null)}
+              style={{ background: "#e5e7eb", border: "none", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+            >
+              Cancel
+            </button>
+          </div>
+          <div style={{ background: "#ffffff", padding: "12px", borderRadius: "8px", border: "1px solid #d1fae5" }}>
+            <strong style={{ fontSize: "13px", color: "#111827" }}>User Question ({replyTicket.subject}):</strong>
+            <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#374151", lineHeight: 1.45 }}>{replyTicket.message}</p>
+          </div>
+          <label style={{ fontSize: "13px", fontWeight: 700, color: "#065f46" }}>
+            Admin Response Message:
+            <textarea
+              rows={4}
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              placeholder="Type your official answer to the user here..."
+              required
+              style={{ width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid #6ee7b7", fontSize: "14px", marginTop: "4px", resize: "vertical" }}
+            />
+          </label>
+          <button
+            type="submit"
+            style={{ padding: "10px 24px", background: "#059669", color: "#fff", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer", justifySelf: "flex-end" }}
+          >
+            Send Reply to User
+          </button>
+        </form>
+      )}
+
+      <Table headers={["User", "Category & Message", "Admin Reply", "Status", "Date", "Actions"]}>
+        {rows.map((r) => {
+          const isAnswered = r.status === "answered" || Boolean(r.admin_reply);
+          return (
+            <tr key={r.id}>
+              <td>
+                <strong>{r.full_name || r.phone || "User"}</strong>
+                <small style={{ display: "block", color: "#6b7280" }}>{r.phone}</small>
+              </td>
+              <td>
+                <strong style={{ fontSize: "13px", color: "#111827" }}>{r.subject}</strong>
+                <p style={{ margin: "4px 0 0", fontSize: "12px", color: "#4b5563", lineHeight: 1.4, maxHeight: "60px", overflow: "hidden" }}>
+                  {r.message}
+                </p>
+              </td>
+              <td>
+                {r.admin_reply ? (
+                  <div style={{ background: "#f0fdf4", borderLeft: "3px solid #10b981", padding: "6px 10px", borderRadius: "4px", fontSize: "12px", color: "#065f46" }}>
+                    <small style={{ display: "block", color: "#047857", fontWeight: 700 }}>Admin:</small>
+                    {r.admin_reply}
+                  </div>
+                ) : (
+                  <span style={{ color: "#9ca3af", fontSize: "12px" }}>No reply yet</span>
+                )}
+              </td>
+              <td>
+                <span
+                  style={{
+                    padding: "3px 8px",
+                    borderRadius: "6px",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    background: isAnswered ? "#dcfce7" : "#fef3c7",
+                    color: isAnswered ? "#166534" : "#92400e"
+                  }}
+                >
+                  {isAnswered ? "Answered" : "Pending"}
+                </span>
+              </td>
+              <td>
+                <small>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "—"}</small>
+              </td>
+              <td>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <button
+                    type="button"
+                    onClick={() => startReply(r)}
+                    style={{ background: "#059669", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+                  >
+                    {r.admin_reply ? "Edit Reply" : "Reply"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm("Delete this inquiry?")) {
+                        update(() => api.adminDeleteSupport(r.id));
+                      }
+                    }}
+                    style={{ background: "#dc2626", color: "#fff" }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </td>
+            </tr>
+          );
+        })}
       </Table>
     </>
   );

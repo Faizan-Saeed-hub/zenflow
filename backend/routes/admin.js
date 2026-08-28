@@ -288,16 +288,38 @@ router.patch("/withdrawals/:id", async (req,res) => {
 
 router.get("/support", async (_req,res) => {
   const [rows]=await getPool().query(
-    `SELECT s.id,s.user_id,u.phone,u.full_name,s.subject,s.message,s.status,s.created_at
+    `SELECT s.id,s.user_id,u.phone,u.full_name,s.subject,s.message,s.admin_reply,s.status,s.created_at,s.replied_at
      FROM support_requests s LEFT JOIN users u ON u.id=s.user_id ORDER BY s.created_at DESC LIMIT 200`
   );
   res.json({requests:rows});
 });
+router.post("/support/:id/reply", async (req,res) => {
+  const { reply } = req.body || {};
+  if (!reply || !String(reply).trim()) return res.status(400).json({ message: "Reply message is required." });
+  const db = getPool();
+  const [[ticket]] = await db.query("SELECT * FROM support_requests WHERE id=? LIMIT 1", [req.params.id]);
+  if (!ticket) return res.status(404).json({ message: "Inquiry not found." });
+  await db.query(
+    "UPDATE support_requests SET admin_reply=?, replied_at=NOW(), status='answered' WHERE id=?",
+    [String(reply).trim(), req.params.id]
+  );
+  if (ticket.user_id) {
+    await db.query(
+      "INSERT INTO notifications(user_id,type,title,message) VALUES(?,'System',?,?)",
+      [ticket.user_id, "Support inquiry answered", `Admin replied to your inquiry: "${String(reply).trim().slice(0, 120)}..."`]
+    );
+  }
+  res.json({ message: "Reply sent to user successfully." });
+});
 router.patch("/support/:id", async (req,res) => {
   const {status}=req.body||{};
-  if(!["open","in_progress","closed"].includes(status)) return res.status(400).json({message:"Invalid support status."});
+  if(!["open","in_progress","answered","closed"].includes(status)) return res.status(400).json({message:"Invalid support status."});
   await getPool().query("UPDATE support_requests SET status=? WHERE id=?",[status,req.params.id]);
   res.json({message:"Support request updated."});
+});
+router.delete("/support/:id", async (req,res) => {
+  await getPool().query("DELETE FROM support_requests WHERE id=?",[req.params.id]);
+  res.json({message:"Support inquiry deleted."});
 });
 
 router.get("/loans", async (_req,res) => {
@@ -331,7 +353,7 @@ router.patch("/bank/:method", async (req,res) => {
     return res.status(400).json({message:"QR image is too large."});
   await getPool().query(
     "INSERT INTO payment_settings(method,account_label,account_number,qr_data,instructions,active) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE account_label=VALUES(account_label),account_number=VALUES(account_number),qr_data=VALUES(qr_data),instructions=VALUES(instructions),active=VALUES(active)",
-    [method,String(accountLabel||method),String(accountNumber).trim(),qrData||null,String(instructions||""),active===false?0:1]
+    [method,String(accountLabel||method),String(accountNumber).trim(),qrData===undefined?null:qrData,String(instructions||""),active===false?0:1]
   );
   res.json({message:`${method} payment settings updated.`});
 });
@@ -353,29 +375,138 @@ router.patch("/bank-settings/:method", async (req,res) => {
     return res.status(400).json({message:"QR image is too large."});
   await getPool().query(
     "INSERT INTO payment_settings(method,account_label,account_number,qr_data,instructions,active) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE account_label=VALUES(account_label),account_number=VALUES(account_number),qr_data=VALUES(qr_data),instructions=VALUES(instructions),active=VALUES(active)",
-    [method,String(accountLabel||method),String(accountNumber).trim(),qrData||null,String(instructions||""),active===false?0:1]
+    [method,String(accountLabel||method),String(accountNumber).trim(),qrData===undefined?null:qrData,String(instructions||""),active===false?0:1]
   );
   res.json({message:`${method} payment settings updated.`});
 });
 
+// News Management
 router.get("/news", async (_req,res) => {
-  const [rows]=await getPool().query("SELECT id,title,summary,body,status,published_at FROM news ORDER BY id DESC LIMIT 200");
+  const [rows]=await getPool().query("SELECT id,title,summary,body,image_url,category,status,published_at FROM news ORDER BY id DESC LIMIT 200");
   res.json({news:rows});
 });
 router.post("/news", async (req,res) => {
-  const {title,summary="",body="",status="draft"}=req.body||{};
-  if(!title) return res.status(400).json({message:"Title is required."});
+  const {title,summary="",body="",imageUrl=null,category="Company",status="published"}=req.body||{};
+  if(!title || !String(title).trim()) return res.status(400).json({message:"Title is required."});
   const [r]=await getPool().query(
-    "INSERT INTO news(title,summary,body,status,published_at) VALUES(?,?,?,?,IF(?='published',NOW(),NULL))",
-    [title,summary,body,status,status]
+    "INSERT INTO news(title,summary,body,image_url,category,status,published_at) VALUES(?,?,?,?,?,?,IF(?='published',NOW(),NULL))",
+    [title.trim(),summary.trim(),body.trim(),imageUrl||null,category.trim(),status,status]
   );
   res.status(201).json({id:r.insertId,message:"News article created."});
 });
 router.patch("/news/:id", async (req,res) => {
-  const {status}=req.body||{};
-  if(!["draft","published"].includes(status)) return res.status(400).json({message:"Invalid news status."});
-  await getPool().query("UPDATE news SET status=?,published_at=IF(?='published',COALESCE(published_at,NOW()),published_at) WHERE id=?",[status,status,req.params.id]);
+  const {title,summary,body,imageUrl,category,status}=req.body||{};
+  await getPool().query(
+    `UPDATE news SET
+       title = COALESCE(?, title),
+       summary = COALESCE(?, summary),
+       body = COALESCE(?, body),
+       image_url = COALESCE(?, image_url),
+       category = COALESCE(?, category),
+       status = COALESCE(?, status),
+       published_at = CASE WHEN ? = 'published' THEN COALESCE(published_at, NOW()) ELSE published_at END
+     WHERE id=?`,
+    [
+      title ? String(title).trim() : null,
+      summary !== undefined ? String(summary).trim() : null,
+      body !== undefined ? String(body).trim() : null,
+      imageUrl !== undefined ? imageUrl : null,
+      category ? String(category).trim() : null,
+      status || null,
+      status || null,
+      req.params.id
+    ]
+  );
   res.json({message:"News updated."});
+});
+router.delete("/news/:id", async (req,res) => {
+  await getPool().query("DELETE FROM news WHERE id=?",[req.params.id]);
+  res.json({message:"News deleted."});
+});
+
+// Plans Management
+router.get("/plans", async (_req, res) => {
+  const [rows] = await getPool().query(`
+    SELECT p.*,
+           COUNT(DISTINCT up.user_id) AS active_subscribers
+    FROM plans p
+    LEFT JOIN user_plans up ON up.plan_id=p.id AND up.status='active' AND (up.expires_at IS NULL OR up.expires_at>NOW())
+    GROUP BY p.id
+    ORDER BY p.id
+  `);
+  res.json({ plans: rows });
+});
+router.patch("/plans/:id", async (req, res) => {
+  const { name, price, dailyIncome, dailyTasks, commissionRate, status } = req.body || {};
+  await getPool().query(
+    `UPDATE plans SET
+       name = COALESCE(?, name),
+       price = COALESCE(?, price),
+       daily_income = COALESCE(?, daily_income),
+       daily_tasks = COALESCE(?, daily_tasks),
+       commission_rate = COALESCE(?, commission_rate),
+       status = COALESCE(?, status)
+     WHERE id=?`,
+    [
+      name ? String(name).trim() : null,
+      price !== undefined ? Number(price) : null,
+      dailyIncome !== undefined ? Number(dailyIncome) : null,
+      dailyTasks !== undefined ? Number(dailyTasks) : null,
+      commissionRate !== undefined ? Number(commissionRate) : null,
+      status || null,
+      req.params.id
+    ]
+  );
+  res.json({ message: "Plan settings updated." });
+});
+
+// Tasks Management
+router.get("/tasks", async (_req, res) => {
+  const [rows] = await getPool().query(`
+    SELECT t.*,
+           COUNT(ts.id) total_submissions
+    FROM tasks t
+    LEFT JOIN task_submissions ts ON ts.task_id=t.id
+    GROUP BY t.id
+    ORDER BY t.id
+  `);
+  res.json({ tasks: rows });
+});
+router.post("/tasks", async (req, res) => {
+  const { title, description = "", imageUrl = null, reward = 30, planRequired = null, status = "active" } = req.body || {};
+  if (!title || !String(title).trim()) return res.status(400).json({ message: "Task title is required." });
+  const [r] = await getPool().query(
+    "INSERT INTO tasks(title, description, image_url, reward, plan_required, status) VALUES(?,?,?,?,?,?)",
+    [title.trim(), description.trim(), imageUrl || null, Number(reward || 30), planRequired || null, status || "active"]
+  );
+  res.status(201).json({ id: r.insertId, message: "Task created successfully." });
+});
+router.patch("/tasks/:id", async (req, res) => {
+  const { title, description, imageUrl, reward, planRequired, status } = req.body || {};
+  await getPool().query(
+    `UPDATE tasks SET
+       title = COALESCE(?, title),
+       description = COALESCE(?, description),
+       image_url = COALESCE(?, image_url),
+       reward = COALESCE(?, reward),
+       plan_required = ?,
+       status = COALESCE(?, status)
+     WHERE id=?`,
+    [
+      title ? String(title).trim() : null,
+      description !== undefined ? String(description).trim() : null,
+      imageUrl !== undefined ? imageUrl : null,
+      reward !== undefined ? Number(reward) : null,
+      planRequired !== undefined ? (planRequired || null) : null,
+      status || null,
+      req.params.id
+    ]
+  );
+  res.json({ message: "Task updated." });
+});
+router.delete("/tasks/:id", async (req, res) => {
+  await getPool().query("DELETE FROM tasks WHERE id=?", [req.params.id]);
+  res.json({ message: "Task deleted." });
 });
 
 // Announcements Management
