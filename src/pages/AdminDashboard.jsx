@@ -1103,15 +1103,20 @@ function Tasks({ rows, update }) {
             style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #94a3b8", fontSize: "14px", background: "#fff" }}
           >
             <option value="">All Users (Intern &amp; Above)</option>
-            <option value="F1">F1 Required</option>
-            <option value="F2">F2 Required</option>
-            <option value="F3">F3 Required</option>
-            <option value="F4">F4 Required</option>
-            <option value="F5">F5 Required</option>
-            <option value="F6">F6 Required</option>
-            <option value="F7">F7 Required</option>
-            <option value="F8">F8 Required</option>
-            <option value="F9">F9 Required</option>
+            <option value="INTERN_ONLY">Only Intern (3-Day Trial Only)</option>
+            <option value="INTERN_F1">Intern &amp; F1 Only</option>
+            <option value="F1">F1 &amp; Above</option>
+            <option value="F2">F2 &amp; Above</option>
+            <option value="F3">F3 &amp; Above</option>
+            <option value="F4">F4 &amp; Above</option>
+            <option value="F5">F5 &amp; Above</option>
+            <option value="F6">F6 &amp; Above</option>
+            <option value="F7">F7 &amp; Above</option>
+            <option value="F8">F8 &amp; Above</option>
+            <option value="F9">F9 Only</option>
+            <option value="F1_ONLY">F1 Only (Exclusive)</option>
+            <option value="F2_ONLY">F2 Only (Exclusive)</option>
+            <option value="F3_ONLY">F3 Only (Exclusive)</option>
           </select>
         </div>
 
@@ -1183,27 +1188,36 @@ function Tasks({ rows, update }) {
       </form>
 
       <Table headers={["Cover", "Book / Task", "Reward", "Plan Required", "Status", "Submissions", "Actions"]}>
-        {rows.map((r) => (
-          <tr key={r.id}>
-            <td style={{ width: "60px" }}>
-              {r.image_url ? (
-                <img src={r.image_url} alt="" style={{ width: "45px", height: "45px", objectFit: "cover", borderRadius: "6px" }} />
-              ) : (
-                <span style={{ color: "#94a3b8", fontSize: "11px" }}>No img</span>
-              )}
-            </td>
-            <td>
-              <strong>{r.title}</strong>
-              <small style={{ display: "block", color: "#64748b", marginTop: "2px", maxHeight: "40px", overflow: "hidden" }}>
-                {r.description?.slice(0, 90) || ""}
-              </small>
-            </td>
-            <td>Rs. {Number(r.reward).toFixed(2)}</td>
-            <td>
-              <span style={{ padding: "2px 6px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: "#f1f5f9" }}>
-                {r.plan_required || "All (Intern)"}
-              </span>
-            </td>
+        {rows.map((r) => {
+          const formatPlanBadge = (code) => {
+            if (!code || code === "ALL") return { label: "All Users", color: "#166534", bg: "#dcfce7" };
+            if (code === "INTERN_ONLY" || code === "INTERN") return { label: "Only Intern", color: "#9a3412", bg: "#ffedd5" };
+            if (code === "INTERN_F1") return { label: "Intern & F1 Only", color: "#1e40af", bg: "#dbeafe" };
+            if (code === "F1_ONLY" || code === "F2_ONLY" || code === "F3_ONLY") return { label: `${code.replace("_ONLY", "")} Only`, color: "#0e7490", bg: "#cffafe" };
+            return { label: `${code} & Above`, color: "#6b21a8", bg: "#f3e8ff" };
+          };
+          const badge = formatPlanBadge(r.plan_required);
+          return (
+            <tr key={r.id}>
+              <td style={{ width: "60px" }}>
+                {r.image_url ? (
+                  <img src={r.image_url} alt="" style={{ width: "45px", height: "45px", objectFit: "cover", borderRadius: "6px" }} />
+                ) : (
+                  <span style={{ color: "#94a3b8", fontSize: "11px" }}>No img</span>
+                )}
+              </td>
+              <td>
+                <strong>{r.title}</strong>
+                <small style={{ display: "block", color: "#64748b", marginTop: "2px", maxHeight: "40px", overflow: "hidden" }}>
+                  {r.description?.slice(0, 90) || ""}
+                </small>
+              </td>
+              <td>Rs. {Number(r.reward).toFixed(2)}</td>
+              <td>
+                <span style={{ padding: "3px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: 700, background: badge.bg, color: badge.color }}>
+                  {badge.label}
+                </span>
+              </td>
             <td>
               <span style={{ padding: "3px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: 700, background: r.status === "active" ? "#dcfce7" : "#f1f5f9", color: r.status === "active" ? "#166534" : "#64748b" }}>
                 {r.status}
@@ -1243,7 +1257,8 @@ function Tasks({ rows, update }) {
               </div>
             </td>
           </tr>
-        ))}
+        );
+      })}
       </Table>
     </>
   );

@@ -10,6 +10,13 @@ function planRank(code) {
   return m ? Number(m[1]) : 0;
 }
 
+function getUnitReward(plan) {
+  if (!plan) return 30; // Intern: 5 tasks * 30 = Rs. 150/day
+  const dailyIncome = Number(plan.daily_income || 150);
+  const dailyTasks = Math.max(1, Number(plan.daily_tasks || 5));
+  return Math.round((dailyIncome / dailyTasks) * 100) / 100;
+}
+
 async function getActivePlan(db, userId) {
   const [[p]] = await db.query(
     `SELECT p.id, p.code, p.name, p.price, p.daily_tasks, p.daily_income
@@ -27,23 +34,59 @@ async function getInternTrialStatus(db, userId, plan) {
   if (plan) {
     return { isIntern: false, trialExpired: false, trialDay: null };
   }
-  // Count distinct past days with approved completed tasks
+  const [[userRow]] = await db.query(
+    "SELECT created_at, DATEDIFF(CURDATE(), DATE(created_at)) AS days_since_reg FROM users WHERE id=?",
+    [userId]
+  );
   const [[pastDaysRow]] = await db.query(
     "SELECT COUNT(DISTINCT task_date) AS days_count FROM task_submissions WHERE user_id=? AND status='approved' AND task_date < CURDATE()",
     [userId]
   );
-  const pastDays = Number(pastDaysRow?.days_count || 0);
-  if (pastDays >= 3) {
+  const pastTaskDays = Number(pastDaysRow?.days_count || 0);
+  const daysSinceReg = Number(userRow?.days_since_reg || 0);
+
+  if (pastTaskDays >= 3 || daysSinceReg >= 3) {
     return { isIntern: true, trialExpired: true, trialDay: 4 };
   }
-  return { isIntern: true, trialExpired: false, trialDay: pastDays + 1 };
+  const currentDay = Math.min(3, Math.max(pastTaskDays + 1, daysSinceReg + 1));
+  return { isIntern: true, trialExpired: false, trialDay: currentDay };
 }
 
 function hasTaskAccess(task, plan, isTrialActive = false) {
-  // Free 3-day Intern trial gives full access to daily review tasks
-  if (isTrialActive) return true;
-  if (!task?.plan_required) return true;
-  return Boolean(plan && planRank(plan.code) >= planRank(task.plan_required));
+  const req = String(task?.plan_required || "").trim().toUpperCase();
+
+  // If user has no active plan and trial is expired -> locked
+  if (!plan && !isTrialActive) return false;
+
+  // No requirement / All Users (Intern & F1-F9)
+  if (!req || req === "ALL" || req === "NONE") {
+    return true;
+  }
+
+  // Only Intern (Trial users)
+  if (req === "INTERN_ONLY" || req === "ONLY_INTERN" || req === "INTERN") {
+    return Boolean(!plan && isTrialActive);
+  }
+
+  // Intern and F1 only
+  if (req === "INTERN_F1" || req === "INTERN_AND_F1") {
+    if (!plan && isTrialActive) return true;
+    return Boolean(plan && planRank(plan.code) === 1);
+  }
+
+  // Exact plan matching
+  if (req === "F1_ONLY") return Boolean(plan && planRank(plan.code) === 1);
+  if (req === "F2_ONLY") return Boolean(plan && planRank(plan.code) === 2);
+  if (req === "F3_ONLY") return Boolean(plan && planRank(plan.code) === 3);
+
+  // Minimum plan required (e.g. F1, F2, F3... or F1_ABOVE)
+  const reqRank = planRank(req);
+  if (reqRank > 0) {
+    if (!plan) return false;
+    return planRank(plan.code) >= reqRank;
+  }
+
+  return true;
 }
 
 router.get("/", async (req, res) => {
@@ -53,6 +96,7 @@ router.get("/", async (req, res) => {
   const isTrialActive = trial.isIntern && !trial.trialExpired;
 
   const dailyLimit = plan ? Number(plan.daily_tasks || 5) : 5;
+  const unitReward = getUnitReward(plan);
 
   const [[counts]] = await db.query(
     `SELECT
@@ -67,16 +111,14 @@ router.get("/", async (req, res) => {
   const limit = dailyLimit;
   const [rows] = await db.query(
     `SELECT t.id, t.title, t.description, t.image_url,
-            COALESCE(ts.reward, ROUND(p2.daily_income/p2.daily_tasks,2), t.reward, 30) reward,
             t.plan_required, t.status,
             COALESCE(ts.status,'not_started') submission_status,
             ts.rating, ts.review_text, ts.task_date, ts.reward_claimed_at, ts.completed_at
      FROM tasks t
      LEFT JOIN task_submissions ts ON ts.task_id=t.id AND ts.user_id=? AND ts.task_date=CURDATE()
-     LEFT JOIN plans p2 ON p2.code=COALESCE((SELECT code FROM plans pp JOIN user_plans u2 ON u2.plan_id=pp.id WHERE u2.user_id=? AND u2.status='active' ORDER BY u2.started_at DESC LIMIT 1),t.plan_required)
      WHERE t.status='active'
      ORDER BY t.id`,
-    [req.user.id, req.user.id]
+    [req.user.id]
   );
 
   const remaining = trial.trialExpired ? 0 : Math.max(0, limit - Number(counts.completed_today || 0));
@@ -85,7 +127,7 @@ router.get("/", async (req, res) => {
     const accessible = trial.trialExpired ? false : hasTaskAccess(r, plan, isTrialActive);
     return {
       ...r,
-      reward: plan ? Number(r.reward || 30) : 30,
+      reward: unitReward,
       locked: !accessible,
       activePlan: plan?.code || (trial.trialExpired ? "Trial Expired" : `Intern (Day ${trial.trialDay}/3)`)
     };
@@ -143,15 +185,13 @@ router.get("/:id", async (req, res) => {
   const db = getPool();
   const [rows] = await db.query(
     `SELECT t.id, t.title, t.description, t.image_url,
-            COALESCE(ts.reward, ROUND(p2.daily_income/p2.daily_tasks,2), t.reward, 30) reward,
             t.plan_required, t.status,
             COALESCE(ts.status,'not_started') submission_status,
             ts.id submission_id, ts.rating, ts.review_text, ts.task_date, ts.reading_completed_at, ts.reward_claimed_at
      FROM tasks t
      LEFT JOIN task_submissions ts ON ts.task_id=t.id AND ts.user_id=? AND ts.task_date=CURDATE()
-     LEFT JOIN plans p2 ON p2.code=COALESCE((SELECT code FROM plans pp JOIN user_plans u2 ON u2.plan_id=pp.id WHERE u2.user_id=? AND u2.status='active' ORDER BY u2.started_at DESC LIMIT 1),t.plan_required)
      WHERE t.id=? LIMIT 1`,
-    [req.user.id, req.user.id, req.params.id]
+    [req.user.id, req.params.id]
   );
   if (!rows.length) return res.status(404).json({ message: "Task not found." });
   const plan = await getActivePlan(db, req.user.id);
@@ -159,10 +199,11 @@ router.get("/:id", async (req, res) => {
   const isTrialActive = trial.isIntern && !trial.trialExpired;
   const task = rows[0];
   const access = trial.trialExpired ? false : hasTaskAccess(task, plan, isTrialActive);
+  const unitReward = getUnitReward(plan);
   res.json({
     task: {
       ...task,
-      reward: plan ? Number(task.reward || 30) : 30,
+      reward: unitReward,
       locked: !access,
       activePlan: plan?.code || (trial.trialExpired ? "Trial Expired" : `Intern (Day ${trial.trialDay}/3)`)
     }
@@ -209,7 +250,7 @@ router.post("/:id/read", async (req, res) => {
     return res.status(400).json({ message: "Today's task limit has been reached." });
   }
 
-  const unitReward = plan ? Number(plan.daily_income || 0) / Math.max(1, Number(plan.daily_tasks || 5)) : 30;
+  const unitReward = getUnitReward(plan);
   await db.query(
     `INSERT INTO task_submissions(task_id,user_id,status,reward,task_date,reading_completed_at) VALUES(?,?,'review_submitted',?,CURDATE(),NOW())`,
     [task.id, req.user.id, unitReward]
