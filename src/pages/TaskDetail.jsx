@@ -59,11 +59,21 @@ export default function TaskDetail() {
   const handleComplete = async () => {
     setBusy(true);
     setError("");
+    const startTime = Date.now();
     try {
       const r = await api.completeTask(task.id);
       const reward = Number(r.reward || task.reward || 30);
+      
+      // Ensure completion takes exactly 2 seconds
+      const elapsed = Date.now() - startTime;
+      const waitTime = Math.max(0, 2000 - elapsed);
+      if (waitTime > 0) {
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
+      }
+
       setTask((t) => ({ ...t, submission_status: "approved" }));
-      setToast(`✓ Rs. ${reward.toLocaleString()} credited directly to your Commission Wallet!`);
+      api.me().catch(() => {});
+      setToast(`🎉 Book review approved! Rs. ${reward.toLocaleString()} credited directly to your Commission Wallet.`);
       setTimeout(() => navigate("/tasks"), 1200);
     } catch (e) {
       setError(e.message || "Failed to complete task.");
@@ -107,7 +117,7 @@ export default function TaskDetail() {
                 marginTop: "16px"
               }}
             >
-              {busy ? "Submitting…" : `⚡ Submit Task & Earn Rs. ${Number(task.reward || 30).toLocaleString()}`}
+              {busy ? "⏳ Submitting review (2s)..." : `⚡ Submit Task & Earn Rs. ${Number(task.reward || 30).toLocaleString()}`}
             </button>
           ) : (
             <div className="reward-success" style={{ marginTop: "16px" }}>
