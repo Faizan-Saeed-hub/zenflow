@@ -1,0 +1,33 @@
+{
+  "name": "ZenFlow",
+  "short_name": "ZenFlow",
+  "description": "ZenFlow — Daily Book Reviews, Tasks, Rewards, Plans & Team Management",
+  "start_url": "/",
+  "id": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#008747",
+  "theme_color": "#008747",
+  "categories": ["finance", "productivity", "business", "lifestyle"],
+  "icons": [
+    {
+      "src": "/zenflow-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/zenflow-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/zenflow-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
