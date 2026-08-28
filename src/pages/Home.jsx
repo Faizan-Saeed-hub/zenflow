@@ -181,14 +181,19 @@ export default function Home() {
         <section className="wallet-grid">
           <NavLink to="/wallet" className="balance-card">
             <div className="balance-title"><span>▣</span> Personal wallet</div>
-            <strong>Rs. {Number(stats?.personalWallet || 0).toLocaleString()}</strong>
+            <strong>Rs. {Number(stats?.personalWallet !== undefined ? stats.personalWallet : (user?.wallet_balance ?? 0)).toLocaleString()}</strong>
           </NavLink>
           <NavLink to="/wallet" className="balance-card">
             <div className="balance-title blue"><span>🎁</span> Earning & commission</div>
-            <strong>Rs. {Number(stats?.commissionWallet || 0).toLocaleString()}</strong>
+            <strong>Rs. {Number(stats?.commissionWallet !== undefined ? stats.commissionWallet : (user?.commission_balance ?? 0)).toLocaleString()}</strong>
           </NavLink>
         </section>
-        <p className="available-balance">Available balance: Rs. {(Number(stats?.personalWallet || 0) + Number(stats?.commissionWallet || 0)).toLocaleString()}</p>
+        <p className="available-balance">
+          Available balance: Rs. {(
+            Number(stats?.personalWallet !== undefined ? stats.personalWallet : (user?.wallet_balance ?? 0)) +
+            Number(stats?.commissionWallet !== undefined ? stats.commissionWallet : (user?.commission_balance ?? 0))
+          ).toLocaleString()}
+        </p>
 
         <section className="task-hall panel">
           <div className="section-head">

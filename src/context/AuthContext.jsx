@@ -8,13 +8,21 @@ export function AuthProvider({ children }) {
     try { return JSON.parse(localStorage.getItem("zen_user") || "null"); }
     catch { return null; }
   });
-  const [loading, setLoading] = useState(Boolean(localStorage.getItem("zen_token")));
+  const [loading, setLoading] = useState(() => !localStorage.getItem("zen_user") && Boolean(localStorage.getItem("zen_token")));
 
   useEffect(() => {
     if (!localStorage.getItem("zen_token")) { setLoading(false); return; }
     api.me()
-      .then(({ user: freshUser }) => setUser(freshUser))
-      .catch(() => { clearSession(); setUser(null); })
+      .then(({ user: freshUser }) => {
+        setUser(freshUser);
+        if (freshUser) localStorage.setItem("zen_user", JSON.stringify(freshUser));
+      })
+      .catch((err) => {
+        if (String(err?.message || "").includes("401") || String(err?.message || "").includes("unauthorized")) {
+          clearSession();
+          setUser(null);
+        }
+      })
       .finally(() => setLoading(false));
   }, []);
 
