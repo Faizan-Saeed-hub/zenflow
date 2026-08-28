@@ -19,6 +19,63 @@ const tabs = [
 ];
 const BANK_METHODS = ["JazzCash", "SadaPay", "EasyPaisa", "Binance (BEP-20)"];
 
+export function normalizeImageUrl(url) {
+  if (!url || typeof url !== "string") return "";
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("data:image/") || trimmed.startsWith("/")) return trimmed;
+
+  const gDriveMatch = trimmed.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) ||
+                      trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (gDriveMatch && (trimmed.includes("drive.google.com") || trimmed.includes("docs.google.com"))) {
+    const fileId = gDriveMatch[1];
+    return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1200`;
+  }
+
+  if (trimmed.includes("dropbox.com")) {
+    return trimmed.replace(/[?&]dl=0/, "?raw=1").replace(/[?&]dl=1/, "?raw=1");
+  }
+
+  return trimmed;
+}
+
+export function processImageUpload(file, maxWidth = 1200, quality = 0.85) {
+  return new Promise((resolve, reject) => {
+    if (!file) return resolve("");
+    if (!file.type || !file.type.startsWith("image/")) {
+      return reject(new Error("Please select a valid image file."));
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Failed to read image file."));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Failed to parse image file."));
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          let width = img.width;
+          let height = img.height;
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, width, height);
+          const outputType = file.type === "image/png" && !file.name.endsWith(".jpg") ? "image/png" : "image/jpeg";
+          const dataUrl = canvas.toDataURL(outputType, quality);
+          resolve(dataUrl);
+        } catch (_) {
+          resolve(String(e.target.result || ""));
+        }
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [tab, setTab] = useState("Overview");
@@ -527,14 +584,15 @@ function Announcements({ rows, update }) {
     setActive(true);
   };
 
-  const handleImageUpload = (e) => {
+  const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) return alert("Please select a valid image file.");
-    if (file.size > 5 * 1024 * 1024) return alert("Image must be smaller than 5 MB.");
-    const reader = new FileReader();
-    reader.onload = () => setImageUrl(String(reader.result || ""));
-    reader.readAsDataURL(file);
+    try {
+      const dataUrl = await processImageUpload(file);
+      setImageUrl(dataUrl);
+    } catch (err) {
+      alert(err.message || "Failed to process image.");
+    }
   };
 
   const submit = async (e) => {
@@ -544,7 +602,7 @@ function Announcements({ rows, update }) {
       const payload = {
         title: title.trim(),
         message: message.trim(),
-        imageUrl: imageUrl.trim() || null,
+        imageUrl: normalizeImageUrl(imageUrl) || null,
         linkUrl: linkUrl.trim() || null,
         linkLabel: linkLabel.trim() || "Learn More",
         active: active ? 1 : 0
@@ -608,7 +666,7 @@ function Announcements({ rows, update }) {
           style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #c9d8d0", fontSize: "14px", resize: "vertical" }}
         />
 
-        {/* Image Options: Upload File OR Direct URL */}
+        {/* Image Options: Upload File OR Direct URL / Google Drive */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", background: "#ffffff", padding: "12px", borderRadius: "10px", border: "1px solid #e0eae4" }}>
           <div>
             <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#374151", marginBottom: "4px" }}>
@@ -623,14 +681,17 @@ function Announcements({ rows, update }) {
           </div>
           <div>
             <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#374151", marginBottom: "4px" }}>
-              Or Image URL
+              Or Image / Google Drive URL
             </label>
             <input
-              placeholder="https://..."
+              placeholder="https://... or Google Drive share link"
               value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
+              onChange={(e) => setImageUrl(normalizeImageUrl(e.target.value))}
               style={{ width: "100%", padding: "8px 10px", borderRadius: "6px", border: "1px solid #c9d8d0", fontSize: "13px" }}
             />
+            <small style={{ color: "#64748b", fontSize: "11px", display: "block", marginTop: "2px" }}>
+              💡 Google Drive links (e.g. drive.google.com/file/d/...) are converted automatically!
+            </small>
           </div>
           {imageUrl && (
             <div style={{ gridColumn: "span 2", display: "flex", alignItems: "center", gap: "12px", marginTop: "4px" }}>
@@ -953,14 +1014,15 @@ function Tasks({ rows, update }) {
     setStatus("active");
   };
 
-  const handleImageUpload = (e) => {
+  const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) return alert("Please select an image file.");
-    if (file.size > 5 * 1024 * 1024) return alert("Image must be smaller than 5 MB.");
-    const reader = new FileReader();
-    reader.onload = () => setImageUrl(String(reader.result || ""));
-    reader.readAsDataURL(file);
+    try {
+      const dataUrl = await processImageUpload(file);
+      setImageUrl(dataUrl);
+    } catch (err) {
+      alert(err.message || "Failed to process image.");
+    }
   };
 
   const submit = async (e) => {
@@ -972,7 +1034,7 @@ function Tasks({ rows, update }) {
         description: description.trim(),
         reward: Number(reward || 30),
         planRequired: planRequired || null,
-        imageUrl: imageUrl.trim() || null,
+        imageUrl: normalizeImageUrl(imageUrl) || null,
         status
       };
       if (editingTaskId) {
@@ -1061,7 +1123,7 @@ function Tasks({ rows, update }) {
           style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #94a3b8", fontSize: "14px", resize: "vertical" }}
         />
 
-        {/* Cover Image Upload or URL */}
+        {/* Cover Image Upload or URL / Google Drive */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", background: "#ffffff", padding: "12px", borderRadius: "10px", border: "1px solid #e2e8f0" }}>
           <div>
             <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>
@@ -1076,14 +1138,17 @@ function Tasks({ rows, update }) {
           </div>
           <div>
             <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>
-              Or Image URL
+              Or Image / Google Drive URL
             </label>
             <input
-              placeholder="https://... or /zenflow-images/..."
+              placeholder="https://... or Google Drive share link"
               value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
+              onChange={(e) => setImageUrl(normalizeImageUrl(e.target.value))}
               style={{ width: "100%", padding: "8px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px" }}
             />
+            <small style={{ color: "#64748b", fontSize: "11px", display: "block", marginTop: "2px" }}>
+              💡 Google Drive links (e.g. drive.google.com/file/d/...) are converted automatically!
+            </small>
           </div>
           {imageUrl && (
             <div style={{ gridColumn: "span 2", display: "flex", alignItems: "center", gap: "12px", marginTop: "4px" }}>
@@ -1331,14 +1396,15 @@ function News({ rows, update }) {
     setStatus("published");
   };
 
-  const handleImageUpload = (e) => {
+  const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) return alert("Please select an image file.");
-    if (file.size > 5 * 1024 * 1024) return alert("Image must be smaller than 5 MB.");
-    const reader = new FileReader();
-    reader.onload = () => setImageUrl(String(reader.result || ""));
-    reader.readAsDataURL(file);
+    try {
+      const dataUrl = await processImageUpload(file);
+      setImageUrl(dataUrl);
+    } catch (err) {
+      alert(err.message || "Failed to process image.");
+    }
   };
 
   const submit = async (e) => {
@@ -1350,7 +1416,7 @@ function News({ rows, update }) {
         category: category.trim(),
         summary: summary.trim(),
         body: body.trim() || summary.trim(),
-        imageUrl: imageUrl.trim() || null,
+        imageUrl: normalizeImageUrl(imageUrl) || null,
         status
       };
       if (editingNewsId) {
@@ -1432,7 +1498,7 @@ function News({ rows, update }) {
           style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #d8b4fe", fontSize: "14px", resize: "vertical" }}
         />
 
-        {/* Cover Image Upload or URL */}
+        {/* Cover Image Upload or URL / Google Drive */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", background: "#ffffff", padding: "12px", borderRadius: "10px", border: "1px solid #f3e8ff" }}>
           <div>
             <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#581c87", marginBottom: "4px" }}>
@@ -1447,14 +1513,17 @@ function News({ rows, update }) {
           </div>
           <div>
             <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#581c87", marginBottom: "4px" }}>
-              Or Image URL
+              Or Image / Google Drive URL
             </label>
             <input
-              placeholder="https://..."
+              placeholder="https://... or Google Drive share link"
               value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
+              onChange={(e) => setImageUrl(normalizeImageUrl(e.target.value))}
               style={{ width: "100%", padding: "8px 10px", borderRadius: "6px", border: "1px solid #d8b4fe", fontSize: "13px" }}
             />
+            <small style={{ color: "#64748b", fontSize: "11px", display: "block", marginTop: "2px" }}>
+              💡 Google Drive links (e.g. drive.google.com/file/d/...) are converted automatically!
+            </small>
           </div>
           {imageUrl && (
             <div style={{ gridColumn: "span 2", display: "flex", alignItems: "center", gap: "12px", marginTop: "4px" }}>
@@ -1579,14 +1648,15 @@ function BankSettings({ rows, update }) {
   const change = (method, key, val) =>
     setDraft((d) => ({ ...d, [method]: { ...(d[method] || {}), [key]: val } }));
 
-  const upload = (method, e) => {
+  const upload = async (method, e) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (!f.type.startsWith("image/")) return alert("Upload an image QR code.");
-    if (f.size > 5 * 1024 * 1024) return alert("QR image must be 5 MB or smaller.");
-    const rd = new FileReader();
-    rd.onload = () => change(method, "qr_data", String(rd.result || ""));
-    rd.readAsDataURL(f);
+    try {
+      const dataUrl = await processImageUpload(f);
+      change(method, "qr_data", dataUrl);
+    } catch (err) {
+      alert(err.message || "Failed to process QR image.");
+    }
   };
 
   const removeQr = (method) => {

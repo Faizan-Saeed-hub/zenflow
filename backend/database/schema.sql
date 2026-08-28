@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS announcements (
  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
  title VARCHAR(180) NOT NULL,
- message TEXT NOT NULL,
- image_url VARCHAR(500) NULL,
+ message LONGTEXT NOT NULL,
+ image_url LONGTEXT NULL,
  link_url VARCHAR(500) NULL,
  link_label VARCHAR(100) NULL DEFAULT 'Learn More',
  active TINYINT(1) NOT NULL DEFAULT 1,
@@ -288,7 +288,8 @@ CREATE TABLE IF NOT EXISTS news (
  title VARCHAR(200) NOT NULL,
  summary TEXT NULL,
  body LONGTEXT NULL,
- image_url VARCHAR(500) NULL,
+ image_url LONGTEXT NULL,
+ category VARCHAR(80) NOT NULL DEFAULT 'Company',
  published_at TIMESTAMP NULL,
  status ENUM('draft','published') NOT NULL DEFAULT 'draft',
  PRIMARY KEY (id)

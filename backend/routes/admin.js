@@ -380,6 +380,26 @@ router.patch("/bank-settings/:method", async (req,res) => {
   res.json({message:`${method} payment settings updated.`});
 });
 
+function normalizeImageUrl(url) {
+  if (!url || typeof url !== "string") return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("data:image/") || trimmed.startsWith("/")) return trimmed;
+
+  const gDriveMatch = trimmed.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) ||
+                      trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (gDriveMatch && (trimmed.includes("drive.google.com") || trimmed.includes("docs.google.com"))) {
+    const fileId = gDriveMatch[1];
+    return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1200`;
+  }
+
+  if (trimmed.includes("dropbox.com")) {
+    return trimmed.replace(/[?&]dl=0/, "?raw=1").replace(/[?&]dl=1/, "?raw=1");
+  }
+
+  return trimmed;
+}
+
 // News Management
 router.get("/news", async (_req,res) => {
   const [rows]=await getPool().query("SELECT id,title,summary,body,image_url,category,status,published_at FROM news ORDER BY id DESC LIMIT 200");
@@ -388,14 +408,16 @@ router.get("/news", async (_req,res) => {
 router.post("/news", async (req,res) => {
   const {title,summary="",body="",imageUrl=null,category="Company",status="published"}=req.body||{};
   if(!title || !String(title).trim()) return res.status(400).json({message:"Title is required."});
+  const finalImage = normalizeImageUrl(imageUrl);
   const [r]=await getPool().query(
     "INSERT INTO news(title,summary,body,image_url,category,status,published_at) VALUES(?,?,?,?,?,?,IF(?='published',NOW(),NULL))",
-    [title.trim(),summary.trim(),body.trim(),imageUrl||null,category.trim(),status,status]
+    [title.trim(),summary.trim(),body.trim(),finalImage,category.trim(),status,status]
   );
   res.status(201).json({id:r.insertId,message:"News article created."});
 });
 router.patch("/news/:id", async (req,res) => {
   const {title,summary,body,imageUrl,category,status}=req.body||{};
+  const finalImage = imageUrl !== undefined ? normalizeImageUrl(imageUrl) : undefined;
   await getPool().query(
     `UPDATE news SET
        title = COALESCE(?, title),
@@ -410,7 +432,7 @@ router.patch("/news/:id", async (req,res) => {
       title ? String(title).trim() : null,
       summary !== undefined ? String(summary).trim() : null,
       body !== undefined ? String(body).trim() : null,
-      imageUrl !== undefined ? imageUrl : null,
+      finalImage !== undefined ? finalImage : null,
       category ? String(category).trim() : null,
       status || null,
       status || null,
@@ -475,14 +497,16 @@ router.get("/tasks", async (_req, res) => {
 router.post("/tasks", async (req, res) => {
   const { title, description = "", imageUrl = null, reward = 30, planRequired = null, status = "active" } = req.body || {};
   if (!title || !String(title).trim()) return res.status(400).json({ message: "Task title is required." });
+  const finalImage = normalizeImageUrl(imageUrl);
   const [r] = await getPool().query(
     "INSERT INTO tasks(title, description, image_url, reward, plan_required, status) VALUES(?,?,?,?,?,?)",
-    [title.trim(), description.trim(), imageUrl || null, Number(reward || 30), planRequired || null, status || "active"]
+    [title.trim(), description.trim(), finalImage, Number(reward || 30), planRequired || null, status || "active"]
   );
   res.status(201).json({ id: r.insertId, message: "Task created successfully." });
 });
 router.patch("/tasks/:id", async (req, res) => {
   const { title, description, imageUrl, reward, planRequired, status } = req.body || {};
+  const finalImage = imageUrl !== undefined ? normalizeImageUrl(imageUrl) : undefined;
   await getPool().query(
     `UPDATE tasks SET
        title = COALESCE(?, title),
@@ -495,7 +519,7 @@ router.patch("/tasks/:id", async (req, res) => {
     [
       title ? String(title).trim() : null,
       description !== undefined ? String(description).trim() : null,
-      imageUrl !== undefined ? imageUrl : null,
+      finalImage !== undefined ? finalImage : null,
       reward !== undefined ? Number(reward) : null,
       planRequired !== undefined ? (planRequired || null) : null,
       status || null,
@@ -524,20 +548,22 @@ router.get("/announcements", async (_req, res) => {
 router.post("/announcements", async (req, res) => {
   const { title, message, imageUrl = null, linkUrl = null, linkLabel = "Learn More", active = 1 } = req.body || {};
   if (!title || !message) return res.status(400).json({ message: "Title and message are required." });
+  const finalImage = normalizeImageUrl(imageUrl);
   try {
     const [r] = await getPool().query(
       "INSERT INTO announcements(title, message, image_url, link_url, link_label, active) VALUES(?,?,?,?,?,?)",
-      [title.trim(), message.trim(), imageUrl || null, linkUrl || null, linkLabel || "Learn More", active ? 1 : 0]
+      [title.trim(), message.trim(), finalImage, linkUrl || null, linkLabel || "Learn More", active ? 1 : 0]
     );
     res.status(201).json({ id: r.insertId, message: "Announcement published." });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ message: "Unable to save announcement." });
+    console.error("Save announcement error:", e);
+    res.status(500).json({ message: "Unable to save announcement: " + (e.sqlMessage || e.message) });
   }
 });
 
 router.patch("/announcements/:id", async (req, res) => {
   const { title, message, imageUrl, linkUrl, linkLabel, active } = req.body || {};
+  const finalImage = imageUrl !== undefined ? normalizeImageUrl(imageUrl) : undefined;
   try {
     await getPool().query(
       `UPDATE announcements
@@ -551,7 +577,7 @@ router.patch("/announcements/:id", async (req, res) => {
       [
         title ? title.trim() : null,
         message ? message.trim() : null,
-        imageUrl !== undefined ? imageUrl : null,
+        finalImage !== undefined ? finalImage : null,
         linkUrl !== undefined ? linkUrl : null,
         linkLabel !== undefined ? linkLabel : null,
         active !== undefined ? (active ? 1 : 0) : null,
@@ -560,7 +586,8 @@ router.patch("/announcements/:id", async (req, res) => {
     );
     res.json({ message: "Announcement updated." });
   } catch (e) {
-    res.status(500).json({ message: "Unable to update announcement." });
+    console.error("Update announcement error:", e);
+    res.status(500).json({ message: "Unable to update announcement: " + (e.sqlMessage || e.message) });
   }
 });
 

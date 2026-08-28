@@ -150,18 +150,24 @@ async function ensureCoreColumns() {
 
   if (await hasTable("news")) {
     await ensureColumn("news", "image_url", "LONGTEXT NULL");
+    try { await q("ALTER TABLE news MODIFY COLUMN image_url LONGTEXT NULL"); } catch (_) {}
+    try { await q("ALTER TABLE news MODIFY COLUMN body LONGTEXT NULL"); } catch (_) {}
     await ensureColumn("news", "category", "VARCHAR(80) NOT NULL DEFAULT 'Company'");
     try { await q("ALTER TABLE news MODIFY COLUMN status ENUM('draft','published') NOT NULL DEFAULT 'published'"); } catch (_) {}
   }
 
   if (await hasTable("announcements")) {
     await ensureColumn("announcements", "image_url", "LONGTEXT NULL");
+    try { await q("ALTER TABLE announcements MODIFY COLUMN image_url LONGTEXT NULL"); } catch (_) {}
+    try { await q("ALTER TABLE announcements MODIFY COLUMN message LONGTEXT NOT NULL"); } catch (_) {}
     await ensureColumn("announcements", "link_url", "VARCHAR(500) NULL");
     await ensureColumn("announcements", "link_label", "VARCHAR(100) NOT NULL DEFAULT 'Learn More'");
   }
 
   if (await hasTable("tasks")) {
     await ensureColumn("tasks", "image_url", "LONGTEXT NULL");
+    try { await q("ALTER TABLE tasks MODIFY COLUMN image_url LONGTEXT NULL"); } catch (_) {}
+    try { await q("ALTER TABLE tasks MODIFY COLUMN description LONGTEXT NULL"); } catch (_) {}
   }
 }
 
