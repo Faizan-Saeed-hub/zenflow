@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { api } from "../services/api";
+import { api, getCachedData } from "../services/api";
 
 const METHODS = {
   JazzCash: { subtitle: "Business Till · instant", accountLabel: "JazzCash Business Till", account: "980203437", logo: "/zenflow-images/payment-methods/jazzcash.png", hint: "Pay to the business till shown below." },
@@ -18,7 +18,7 @@ export default function Recharge(){
  const [planCode,setPlanCode]=useState(PLANS.find(p=>p.code===requestedPlan&&!p.soon)?.code||"F1");
  const selectedPlan=useMemo(()=>PLANS.find(p=>p.code===planCode)||PLANS[0],[planCode]);
  const [walletNumber,setWalletNumber]=useState(""); const [tid,setTid]=useState(""); const [proofData,setProofData]=useState(""); const [proofName,setProofName]=useState("");
- const [secondsLeft,setSecondsLeft]=useState(300); const [paymentSettings,setPaymentSettings]=useState({}); const [submitting,setSubmitting]=useState(false); const [message,setMessage]=useState(""); const [error,setError]=useState(""); const [deposits,setDeposits]=useState([]);
+ const [secondsLeft,setSecondsLeft]=useState(300); const [paymentSettings,setPaymentSettings]=useState({}); const [submitting,setSubmitting]=useState(false); const [message,setMessage]=useState(""); const [error,setError]=useState(""); const [deposits,setDeposits]=useState(()=>getCachedData("deposits")?.deposits||[]);
  const methodInfo={...METHODS[method],...(paymentSettings[method]||{}),account:paymentSettings[method]?.account_number||METHODS[method].account,accountLabel:paymentSettings[method]?.account_label||METHODS[method].accountLabel,qrData:paymentSettings[method]?.qr_data||"/zenflow-images/payment-methods/dummy-qr.svg",hint:paymentSettings[method]?.instructions||METHODS[method].hint};
  useEffect(()=>{Promise.all([api.deposits(),api.paymentSettings?.()]).then(([d,ps])=>{setDeposits(d.deposits||[]);const map={};(ps?.settings||[]).forEach(x=>map[x.method]=x);setPaymentSettings(map)}).catch(()=>{});},[]);
  useEffect(()=>{if(step!==2)return;setSecondsLeft(300);const t=window.setInterval(()=>setSecondsLeft(s=>s>0?s-1:0),1000);return()=>window.clearInterval(t)},[step]);

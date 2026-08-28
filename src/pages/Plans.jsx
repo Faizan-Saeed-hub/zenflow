@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { api } from '../services/api';
+import { api, getCachedData, getCachedUser } from '../services/api';
 
 const money=(v)=>Number(v||0).toLocaleString('en-US',{maximumFractionDigits:2});
 function PlanIcon({level='ZF'}) { return <div className="plan-logo">ZF<small>{level}</small></div>; }
 function Table({ title, subtitle, headers, rows, note }) { return <section className="plans-table-card"><div className="plans-table-head"><PlanIcon/><div><strong>{title}</strong><span>{subtitle}</span></div></div><div className="table-scroll"><table><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((row,i)=><tr key={i}>{row.map((cell,j)=><td key={j}>{cell}</td>)}</tr>)}</tbody></table></div>{note&&<p className="table-note">{note}</p>}</section>; }
 
 export default function Plans() {
-  const [plansData,setPlansData]=useState([]); const [wallet,setWallet]=useState(0); const [myPlans,setMyPlans]=useState([]); const [active,setActive]=useState([]);
+  const [plansData,setPlansData]=useState(()=>getCachedData('plans')?.plans||[]); const [wallet,setWallet]=useState(()=>Number(getCachedUser()?.wallet_balance||0)); const [myPlans,setMyPlans]=useState(()=>getCachedData('my_plans')?.plans||[]); const [active,setActive]=useState(()=>(getCachedData('my_plans')?.plans||[]).filter(p=>p.status==='active'));
   const [busy,setBusy]=useState(null); const [message,setMessage]=useState(''); const [error,setError]=useState('');
   const load=async()=>{const [{plans},{user},mine]=await Promise.all([api.plans(),api.me(),api.myPlans()]);setPlansData(plans||[]);setWallet(Number(user?.wallet_balance||0));setMyPlans(mine.plans||[]);setActive((mine.plans||[]).filter(p=>p.status==='active'));};
   useEffect(()=>{load().catch(e=>setError(e.message));},[]);

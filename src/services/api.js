@@ -59,22 +59,59 @@ async function request(path, options = {}) {
   return data;
 }
 
+export const getCachedData = (key, fallback = null) => {
+  try {
+    const raw = localStorage.getItem(`zen_cache_${key}`);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (_) {
+    return fallback;
+  }
+};
+
+export const setCachedData = (key, data) => {
+  try {
+    localStorage.setItem(`zen_cache_${key}`, JSON.stringify(data));
+  } catch (_) {}
+};
+
+export const getCachedUser = () => {
+  try {
+    const raw = localStorage.getItem("zen_user");
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    return null;
+  }
+};
+
 export const api = {
   health: () => request("/health"),
 
-  register: (p) =>
-    request("/auth/register", {
+  register: async (p) => {
+    const res = await request("/auth/register", {
       method: "POST",
       body: JSON.stringify(p)
-    }),
+    });
+    if (res?.token && res?.user) setSession(res);
+    return res;
+  },
 
-  login: (p) =>
-    request("/auth/login", {
+  login: async (p) => {
+    const res = await request("/auth/login", {
       method: "POST",
       body: JSON.stringify(p)
-    }),
+    });
+    if (res?.token && res?.user) setSession(res);
+    return res;
+  },
 
-  me: () => request("/me"),
+  me: async () => {
+    const res = await request("/me");
+    if (res?.user) {
+      localStorage.setItem("zen_user", JSON.stringify(res.user));
+      setCachedData("user_me", res.user);
+    }
+    return res;
+  },
 
   updateMe: (p) =>
     request("/me", {
@@ -94,11 +131,23 @@ export const api = {
       body: JSON.stringify(p)
     }),
 
-  dashboard: () => request("/dashboard"),
+  dashboard: async () => {
+    const res = await request("/dashboard");
+    if (res?.stats) setCachedData("dashboard_stats", res.stats);
+    return res;
+  },
 
-  plans: () => request("/plans"),
+  plans: async () => {
+    const res = await request("/plans");
+    if (res?.plans) setCachedData("plans", res);
+    return res;
+  },
 
-  myPlans: () => request("/plans/mine"),
+  myPlans: async () => {
+    const res = await request("/plans/mine");
+    if (res) setCachedData("my_plans", res);
+    return res;
+  },
 
   purchasePlan: (id) =>
     request(`/plans/${id}/purchase`, { method: "POST" }),
@@ -106,13 +155,21 @@ export const api = {
   activatePlan: (id) =>
     request(`/plans/${id}/purchase`, { method: "POST" }),
 
-  tasks: () => request("/tasks"),
+  tasks: async () => {
+    const res = await request("/tasks");
+    if (res) setCachedData("tasks", res);
+    return res;
+  },
 
   task: (id) => request(`/tasks/${id}`),
 
   taskLibrary: () => request("/tasks/library"),
 
-  completedTasks: () => request("/tasks/completed"),
+  completedTasks: async () => {
+    const res = await request("/tasks/completed");
+    if (res) setCachedData("completed_tasks", res);
+    return res;
+  },
 
   finishTaskReading: (id) => request(`/tasks/${id}/read`, { method: "POST" }),
 
@@ -143,8 +200,11 @@ export const api = {
   walletTransactions: () =>
     request("/wallet/transactions"),
 
-  payoutAccounts: () =>
-    request("/wallet/accounts"),
+  payoutAccounts: async () => {
+    const res = await request("/wallet/accounts");
+    if (res) setCachedData("payoutAccounts", res);
+    return res;
+  },
 
   addPayoutAccount: (p) =>
     request("/wallet/accounts", {
@@ -152,10 +212,17 @@ export const api = {
       body: JSON.stringify(p)
     }),
 
-  withdrawals: () =>
-    request("/withdrawals"),
+  withdrawals: async () => {
+    const res = await request("/withdrawals");
+    if (res) setCachedData("withdrawals", res);
+    return res;
+  },
 
-  deposits: () => request("/deposits"),
+  deposits: async () => {
+    const res = await request("/deposits");
+    if (res) setCachedData("deposits", res);
+    return res;
+  },
 
   paymentSettings: () => request("/wallet/payment-settings"),
 
@@ -171,11 +238,23 @@ export const api = {
       body: JSON.stringify(p)
     }),
 
-  team: () => request("/team"),
+  team: async () => {
+    const res = await request("/team");
+    if (res) setCachedData("team", res);
+    return res;
+  },
 
-  rewards: () => request("/rewards"),
+  rewards: async () => {
+    const res = await request("/rewards");
+    if (res) setCachedData("rewards", res);
+    return res;
+  },
 
-  news: () => request("/content/news"),
+  news: async () => {
+    const res = await request("/content/news");
+    if (res) setCachedData("news", res);
+    return res;
+  },
 
   funds: () => request("/content/funds"),
 

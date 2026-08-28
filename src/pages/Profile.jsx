@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, clearSession } from "../services/api";
+import { api, clearSession, getCachedData, getCachedUser } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 
 const actions = [
@@ -11,8 +11,8 @@ const actions = [
 export default function Profile() {
   const navigate = useNavigate();
   const { logout } = useAuth();
-  const [user, setUser] = useState(null);
-  const [stats, setStats] = useState(null);
+  const [user, setUser] = useState(() => getCachedUser());
+  const [stats, setStats] = useState(() => getCachedData("dashboard_stats") || null);
 
   useEffect(() => {
     Promise.all([api.me(), api.dashboard()])

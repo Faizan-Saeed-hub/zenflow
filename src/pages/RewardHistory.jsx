@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../services/api";
+import { api, getCachedData } from "../services/api";
 
 export default function RewardHistory() {
   const navigate = useNavigate();
   const [tab, setTab] = useState("task"); // 'task' | 'commission' | 'all'
-  const [data, setData] = useState({ rewards: [], taskRewards: [], teamCommissions: [], total: 0, taskTotal: 0, commissionTotal: 0, count: 0 });
+  const [data, setData] = useState(() => getCachedData("rewards") || { rewards: [], taskRewards: [], teamCommissions: [], total: 0, taskTotal: 0, commissionTotal: 0, count: 0 });
   const [error, setError] = useState("");
 
   useEffect(() => {

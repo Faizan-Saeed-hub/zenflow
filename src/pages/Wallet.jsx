@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../services/api";
+import { api, getCachedData, getCachedUser } from "../services/api";
 
 export default function Wallet() {
   const navigate = useNavigate();
   const [fundPassword, setFundPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [message, setMessage] = useState("");
-  const [accounts, setAccounts] = useState([]);
-  const [deposits, setDeposits] = useState([]);
-  const [withdrawals, setWithdrawals] = useState([]);
-  const [user, setUser] = useState(null);
+  const [accounts, setAccounts] = useState(() => getCachedData("payoutAccounts")?.accounts || []);
+  const [deposits, setDeposits] = useState(() => getCachedData("deposits")?.deposits || []);
+  const [withdrawals, setWithdrawals] = useState(() => getCachedData("withdrawals")?.withdrawals || []);
+  const [user, setUser] = useState(() => getCachedUser());
   const [showAccountForm, setShowAccountForm] = useState(false);
   const [accountMethod, setAccountMethod] = useState("JazzCash");
   const [accountName, setAccountName] = useState("");

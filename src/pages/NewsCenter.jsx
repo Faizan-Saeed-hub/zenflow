@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../services/api";
+import { api, getCachedData } from "../services/api";
 
 const defaultNews = [
   {
@@ -34,8 +34,8 @@ const defaultNews = [
 
 export default function NewsCenter() {
   const navigate = useNavigate();
-  const [newsList, setNewsList] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [newsList, setNewsList] = useState(() => getCachedData("news")?.news || defaultNews);
+  const [loading, setLoading] = useState(false);
   const [selectedArticle, setSelectedArticle] = useState(null);
 
   useEffect(() => {

@@ -1,20 +1,24 @@
-import { useEffect,useMemo,useState } from "react";
-import { NavLink,useNavigate } from "react-router-dom";
-import { api } from "../services/api";
-const fallbackImages={
- "Glass Orchard":"/zenflow-images/task-cards/book-letters-to-shirin.png",
- "Midnight Street":"/zenflow-images/task-cards/book-midnight-bakery.png",
- "Silent Harbor":"/zenflow-images/task-cards/book-winter-swimmers.png",
- "Winter Sparrow":"/zenflow-images/task-cards/book-clockwork-orchid.png",
- "Kite City":"/zenflow-images/task-cards/book-the-blue-hour.png",
- "Blue Hour":"/zenflow-images/task-cards/book-the-blue-hour.png",
- "Golden Orchid":"/zenflow-images/task-cards/book-clockwork-orchid.png"
+import { useEffect, useMemo, useState } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
+import { api, getCachedData } from "../services/api";
+const fallbackImages = {
+ "Glass Orchard": "/zenflow-images/task-cards/book-letters-to-shirin.png",
+ "Midnight Street": "/zenflow-images/task-cards/book-midnight-bakery.png",
+ "Silent Harbor": "/zenflow-images/task-cards/book-winter-swimmers.png",
+ "Winter Sparrow": "/zenflow-images/task-cards/book-clockwork-orchid.png",
+ "Kite City": "/zenflow-images/task-cards/book-the-blue-hour.png",
+ "Blue Hour": "/zenflow-images/task-cards/book-the-blue-hour.png",
+ "Golden Orchid": "/zenflow-images/task-cards/book-clockwork-orchid.png"
 };
-export default function Tasks(){
- const navigate=useNavigate(); const [tab,setTab]=useState("Today"); const [tasks,setTasks]=useState([]); const [meta,setMeta]=useState({dailyLimit:5,completedToday:0,remaining:5,todayEarnings:0}); const [error,setError]=useState("");
- const load=()=>api.tasks().then(({tasks:t,meta:m})=>{setTasks(t||[]);setMeta(m||meta)}).catch(e=>setError(e.message));
- useEffect(()=>{if(tab==="Completed") api.completedTasks().then(({tasks:t})=>setTasks(t||[])).catch(e=>setError(e.message)); else load();},[tab]);
- const visible=useMemo(()=>tab==="Completed"?tasks:tasks.filter(t=>t.submission_status!=="approved"),[tab,tasks]);
+export default function Tasks() {
+ const navigate = useNavigate();
+ const [tab, setTab] = useState("Today");
+ const [tasks, setTasks] = useState(() => getCachedData("tasks")?.tasks || []);
+ const [meta, setMeta] = useState(() => getCachedData("tasks")?.meta || { dailyLimit: 5, completedToday: 0, remaining: 5, todayEarnings: 0 });
+ const [error, setError] = useState("");
+ const load = () => api.tasks().then(({ tasks: t, meta: m }) => { setTasks(t || []); setMeta(m || meta); }).catch(e => setError(e.message));
+ useEffect(() => { if (tab === "Completed") api.completedTasks().then(({ tasks: t }) => setTasks(t || [])).catch(e => setError(e.message)); else load(); }, [tab]);
+ const visible = useMemo(() => tab === "Completed" ? tasks : tasks.filter(t => t.submission_status !== "approved"), [tab, tasks]);
  return <div className="tasks-page"><header className="tasks-banner"><div><strong>Book review tasks</strong><span>{meta.trialExpired ? '3-day trial finished' : `${meta.remaining} of ${meta.dailyLimit} daily book reviews left today`}</span></div><div className="today-earnings"><small>Today's earnings</small><b>Rs. {Number(meta.todayEarnings||0).toLocaleString()}</b></div></header>
  <main className="tasks-content">
    <section className="plan-strip">

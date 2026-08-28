@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { api } from "../services/api";
+import { api, getCachedData } from "../services/api";
 
 const quickActions = [
   ["/zenflow-images/home-icons/invite-CVO0YD4_.png", "Invite Friends", "/referral"],
@@ -62,9 +62,9 @@ export default function Home() {
   const navigate = useNavigate();
   const [heroIndex, setHeroIndex] = useState(0);
   const [taskIndex, setTaskIndex] = useState(0);
-  const [stats, setStats] = useState(null);
-  const [taskCards, setTaskCards] = useState([]);
-  const [announcement, setAnnouncement] = useState(null);
+  const [stats, setStats] = useState(() => getCachedData("dashboard_stats") || null);
+  const [taskCards, setTaskCards] = useState(() => (getCachedData("tasks")?.tasks || []).slice(0, 5));
+  const [announcement, setAnnouncement] = useState(() => getCachedData("active_announcement") || null);
   const [showAnnouncement, setShowAnnouncement] = useState(false);
 
   useEffect(() => {

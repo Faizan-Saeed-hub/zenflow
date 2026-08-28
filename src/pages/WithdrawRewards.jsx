@@ -1,10 +1,34 @@
-import { useEffect,useMemo,useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../services/api";
-const amounts=[260,1650,6600,17500,114000,1016000,1525000,2589000,12955000];
-export default function WithdrawRewards(){
- const navigate=useNavigate(); const [user,setUser]=useState(null); const [accounts,setAccounts]=useState([]); const [history,setHistory]=useState([]); const [source,setSource]=useState("commission"); const [amount,setAmount]=useState(""); const [method,setMethod]=useState("JazzCash"); const [accountId,setAccountId]=useState(""); const [fundPassword,setFundPassword]=useState(""); const [message,setMessage]=useState(""); const [error,setError]=useState(""); const [busy,setBusy]=useState(false);
- const load=async()=>{const [{user:u},{accounts:a},{withdrawals:w}]=await Promise.all([api.me(),api.payoutAccounts(),api.withdrawals()]);setUser(u);setAccounts(a||[]);setHistory(w||[]);if(a?.length){setAccountId(String(a[0].id));setMethod(a[0].method)}};useEffect(()=>{load().catch(e=>setError(e.message));},[]);
+import { api, getCachedData, getCachedUser } from "../services/api";
+const amounts = [260, 1650, 6600, 17500, 114000, 1016000, 1525000, 2589000, 12955000];
+export default function WithdrawRewards() {
+ const navigate = useNavigate();
+ const [user, setUser] = useState(() => getCachedUser());
+ const [accounts, setAccounts] = useState(() => getCachedData("payoutAccounts")?.accounts || []);
+ const [history, setHistory] = useState(() => getCachedData("withdrawals")?.withdrawals || []);
+ const [source, setSource] = useState("commission");
+ const [amount, setAmount] = useState("");
+ const [method, setMethod] = useState("JazzCash");
+ const [accountId, setAccountId] = useState(() => {
+   const a = getCachedData("payoutAccounts")?.accounts;
+   return a?.length ? String(a[0].id) : "";
+ });
+ const [fundPassword, setFundPassword] = useState("");
+ const [message, setMessage] = useState("");
+ const [error, setError] = useState("");
+ const [busy, setBusy] = useState(false);
+ const load = async () => {
+   const [{ user: u }, { accounts: a }, { withdrawals: w }] = await Promise.all([api.me(), api.payoutAccounts(), api.withdrawals()]);
+   setUser(u);
+   setAccounts(a || []);
+   setHistory(w || []);
+   if (a?.length && !accountId) {
+     setAccountId(String(a[0].id));
+     setMethod(a[0].method);
+   }
+ };
+ useEffect(() => { load().catch(e => setError(e.message)); }, []);
  const balance=source==='commission'?Number(user?.commission_balance||0):Number(user?.wallet_balance||0); const selected=Number(amount||0); const fee=selected*.12; const net=selected-fee;
  const filteredAccounts=useMemo(()=>accounts.filter(a=>a.method===method),[accounts,method]);
  useEffect(()=>{const a=filteredAccounts[0];setAccountId(a?String(a.id):"");},[method]);

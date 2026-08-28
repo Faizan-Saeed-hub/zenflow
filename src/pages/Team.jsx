@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../services/api";
+import { api, getCachedData } from "../services/api";
 
 export default function Team() {
   const navigate = useNavigate();
   const [view, setView] = useState("my-team");
   const [level, setLevel] = useState("A");
-  const [data, setData] = useState({ referralCode: "", summary:{A:0,B:0,C:0}, total:0, teamEarnings:0, members:[] });
+  const [data, setData] = useState(() => getCachedData("team") || { referralCode: "", summary:{A:0,B:0,C:0}, total:0, teamEarnings:0, members:[] });
   const [error, setError] = useState("");
 
   const load = () => api.team().then(setData).catch(e => setError(e.message));
