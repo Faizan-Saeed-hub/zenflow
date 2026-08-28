@@ -2785,6 +2785,7 @@ function AdminLuckyWheel({ data = {}, update }) {
 
   // Give Spin Form state
   const [targetUserId, setTargetUserId] = useState("");
+  const [userSelectSearch, setUserSelectSearch] = useState("");
   const [spinsToAdd, setSpinsToAdd] = useState(1);
   const [assignedPrize, setAssignedPrize] = useState("100");
   const [giveStatus, setGiveStatus] = useState("");
@@ -2803,6 +2804,17 @@ function AdminLuckyWheel({ data = {}, update }) {
       .map((s) => Number(s.trim()))
       .filter((n) => !isNaN(n) && n > 0);
   }, [segmentsInput]);
+
+  const eligibleDropdownUsers = useMemo(() => {
+    if (!userSelectSearch.trim()) return users;
+    const q = userSelectSearch.toLowerCase();
+    return users.filter(
+      (u) =>
+        (u.phone && u.phone.includes(q)) ||
+        (u.full_name && u.full_name.toLowerCase().includes(q)) ||
+        String(u.id).includes(q)
+    );
+  }, [users, userSelectSearch]);
 
   const handleSaveSettings = async (e) => {
     e.preventDefault();
@@ -2832,7 +2844,7 @@ function AdminLuckyWheel({ data = {}, update }) {
   const handleGiveSpin = async (e) => {
     e.preventDefault();
     if (!targetUserId) return setGiveStatus("Please select or specify a user.");
-    setGiveStatus("Assigning spin...");
+    setGiveStatus("✓ Assigning spin instantly...");
     try {
       await update(() =>
         api.adminGiveSpin({
@@ -2841,8 +2853,9 @@ function AdminLuckyWheel({ data = {}, update }) {
           assignedAmount: assignedPrize === "default" || !assignedPrize ? null : Number(assignedPrize)
         })
       );
-      setGiveStatus("✓ Spin successfully granted to user with assigned prize!");
+      setGiveStatus("✓ Spin successfully granted to user with locked prize!");
       setTargetUserId("");
+      setUserSelectSearch("");
     } catch (err) {
       setGiveStatus(`Error: ${err.message}`);
     }
@@ -2954,21 +2967,30 @@ function AdminLuckyWheel({ data = {}, update }) {
         <div style={{ background: "#ffffff", padding: "18px", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
           <h3 style={{ margin: "0 0 12px", fontSize: "15px", color: "#0f172a" }}>🎁 Assign Spin &amp; Guaranteed Prize to User</h3>
           <form onSubmit={handleGiveSpin}>
-            <label style={{ display: "block", marginBottom: "10px", fontSize: "12px", fontWeight: 600, color: "#334155" }}>
-              Select Eligible User:
+            <div style={{ marginBottom: "10px" }}>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>
+                Quick Search User Phone / Name:
+                <input
+                  type="text"
+                  placeholder="Type phone digits (e.g. 0325)..."
+                  value={userSelectSearch}
+                  onChange={(e) => setUserSelectSearch(e.target.value)}
+                  style={{ width: "100%", padding: "6px 8px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "12px", marginTop: "2px" }}
+                />
+              </label>
               <select
                 value={targetUserId}
                 onChange={(e) => setTargetUserId(e.target.value)}
                 style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", marginTop: "4px" }}
               >
-                <option value="">-- Choose a user by phone / name --</option>
-                {users.map((u) => (
+                <option value="">-- Select user ({eligibleDropdownUsers.length} matches) --</option>
+                {eligibleDropdownUsers.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.phone} — {u.full_name || "User"} (Current spins: {u.spins_available})
+                    {u.phone} — {u.full_name || "User"} (Spins: {u.spins_available})
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "14px" }}>
               <label style={{ fontSize: "12px", fontWeight: 600, color: "#334155" }}>

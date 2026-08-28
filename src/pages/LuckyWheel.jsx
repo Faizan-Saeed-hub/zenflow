@@ -57,20 +57,19 @@ export default function LuckyWheel() {
 
     try {
       const result = await api.luckyWheelSpin();
+      const numSegments = segments.map((s) => Number(s));
+      const segmentAngle = 360 / (numSegments.length || 10);
       const targetIndex = result.segmentIndex !== undefined ? result.segmentIndex : 0;
       const prizeWon = result.amountWon;
 
-      // Calculate target angle
-      // 10 segments -> 36 degrees per segment
-      const segmentAngle = 360 / segments.length; // 36deg
-      // Pointer is at the top (0deg).
-      // Segment i starts at i * 36deg to (i+1)*36deg. Center is (i + 0.5) * 36deg.
-      // To bring segment i under top pointer: rotate backwards by (i + 0.5) * 36deg
-      const targetSegmentCenter = (targetIndex + 0.5) * segmentAngle;
-      const baseSpins = 360 * 6; // 6 full 360-degree rotations
-      const targetAngle = baseSpins + (360 - targetSegmentCenter);
+      // Segment i center is located at (i * segmentAngle + segmentAngle / 2) from 12 o'clock.
+      // To align segment i center exactly under the top pointer (0 deg):
+      const targetAngleInCircle = (360 - (targetIndex * segmentAngle + segmentAngle / 2)) % 360;
+      const currentAngleInCircle = totalRotationRef.current % 360;
+      const deltaAngle = (targetAngleInCircle - currentAngleInCircle + 360) % 360;
+      const baseSpins = 360 * 6; // 6 clean full rotations
 
-      const nextRotation = totalRotationRef.current + targetAngle;
+      const nextRotation = totalRotationRef.current + baseSpins + deltaAngle;
       totalRotationRef.current = nextRotation;
       setRotation(nextRotation);
 

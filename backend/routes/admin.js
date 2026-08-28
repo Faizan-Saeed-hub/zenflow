@@ -1077,7 +1077,34 @@ router.post("/import/withdrawals", async (req, res) => {
 router.get("/lucky-wheel", async (_req, res) => {
   const db = getPool();
   try {
-    const [settingsRows] = await db.query("SELECT setting_key, setting_val FROM lucky_wheel_settings");
+    const [settingsPromise, usersPromise, logsPromise] = [
+      db.query("SELECT setting_key, setting_val FROM lucky_wheel_settings"),
+      db.query(`
+        SELECT u.id, u.phone, u.full_name, u.role, u.commission_balance, u.wallet_balance,
+               COALESCE(ls.spins_available, 0) AS spins_available,
+               ls.assigned_amount,
+               COALESCE(agg.total_spins_done, 0) AS total_spins_done,
+               COALESCE(agg.total_won_amount, 0) AS total_won_amount
+        FROM users u
+        LEFT JOIN lucky_spins ls ON ls.user_id = u.id
+        LEFT JOIN (
+          SELECT user_id, COUNT(*) AS total_spins_done, SUM(amount_won) AS total_won_amount
+          FROM lucky_spin_logs
+          GROUP BY user_id
+        ) agg ON agg.user_id = u.id
+        WHERE u.role = 'user'
+        ORDER BY (COALESCE(ls.spins_available, 0) > 0) DESC, u.id DESC
+      `),
+      db.query(`
+        SELECT lsl.id, lsl.user_id, u.phone, u.full_name, lsl.amount_won, lsl.created_at
+        FROM lucky_spin_logs lsl
+        JOIN users u ON u.id = lsl.user_id
+        ORDER BY lsl.id DESC LIMIT 100
+      `)
+    ];
+
+    const [[settingsRows], [users], [logs]] = await Promise.all([settingsPromise, usersPromise, logsPromise]);
+
     const settings = {
       segments: [50, 100, 200, 300, 450, 500, 550, 600, 650, 700],
       defaultWinAmount: 100,
@@ -1095,25 +1122,6 @@ router.get("/lucky-wheel", async (_req, res) => {
         settings.depositWinAmount = Number(r.setting_val || 200);
       }
     });
-
-    const [users] = await db.query(
-      `SELECT u.id, u.phone, u.full_name, u.role, u.commission_balance, u.wallet_balance,
-              COALESCE(ls.spins_available, 0) AS spins_available,
-              ls.assigned_amount,
-              (SELECT COUNT(*) FROM lucky_spin_logs lsl WHERE lsl.user_id = u.id) AS total_spins_done,
-              (SELECT COALESCE(SUM(lsl.amount_won), 0) FROM lucky_spin_logs lsl WHERE lsl.user_id = u.id) AS total_won_amount
-       FROM users u
-       LEFT JOIN lucky_spins ls ON ls.user_id = u.id
-       WHERE u.role = 'user'
-       ORDER BY (COALESCE(ls.spins_available, 0) > 0) DESC, u.id DESC`
-    );
-
-    const [logs] = await db.query(
-      `SELECT lsl.id, lsl.user_id, u.phone, u.full_name, lsl.amount_won, lsl.created_at
-       FROM lucky_spin_logs lsl
-       JOIN users u ON u.id = lsl.user_id
-       ORDER BY lsl.id DESC LIMIT 100`
-    );
 
     res.json({ settings, users, logs });
   } catch (err) {

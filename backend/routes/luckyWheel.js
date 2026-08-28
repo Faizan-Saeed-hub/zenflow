@@ -74,7 +74,8 @@ router.post("/spin", requireAuth, async (req, res) => {
       });
     }
 
-    const segments = await getSetting("wheel_segments", DEFAULT_SEGMENTS);
+    const rawSegments = await getSetting("wheel_segments", DEFAULT_SEGMENTS);
+    const segments = (Array.isArray(rawSegments) ? rawSegments : DEFAULT_SEGMENTS).map((s) => Number(s));
     const defaultWin = Number(await getSetting("default_win_amount", 100));
 
     let amountWon = defaultWin;
@@ -82,8 +83,8 @@ router.post("/spin", requireAuth, async (req, res) => {
       amountWon = Number(spinRow.assigned_amount);
     }
 
-    // Find the target segment index for the wheel landing
-    let segmentIndex = segments.indexOf(amountWon);
+    // Find the exact target segment index for the wheel landing
+    let segmentIndex = segments.findIndex((amt) => Number(amt) === Number(amountWon));
     if (segmentIndex === -1) {
       // Find closest segment or fallback to first segment
       segmentIndex = 0;
