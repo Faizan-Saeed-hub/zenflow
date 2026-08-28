@@ -95,34 +95,6 @@ export function exportToCsv(filename, headers, dataRows) {
   document.body.removeChild(link);
 }
 
-export function parseCsv(text) {
-  const lines = text.split(/\r\n|\n/).filter((l) => l.trim().length > 0);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(",").map((h) => h.replace(/^["']|["']$/g, "").trim());
-  return lines.slice(1).map((line) => {
-    const values = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i];
-      if (c === '"' || c === "'") {
-        inQuotes = !inQuotes;
-      } else if (c === "," && !inQuotes) {
-        values.push(current.trim());
-        current = "";
-      } else {
-        current += c;
-      }
-    }
-    values.push(current.trim());
-    const obj = {};
-    headers.forEach((h, idx) => {
-      obj[h] = values[idx]?.replace(/^["']|["']$/g, "") || "";
-    });
-    return obj;
-  });
-}
-
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [tab, setTab] = useState("Overview");
@@ -142,6 +114,7 @@ export default function AdminDashboard() {
         }).then((r) => r.json());
         setData({ users: res.users || [] });
       }
+      if (section === "Lucky Wheel") setData({ luckyWheel: await api.adminLuckyWheel() });
       if (section === "Team") setData({ team: await api.adminTeam() });
       if (section === "Announcements") setData({ announcements: (await api.adminGetAnnouncements()).announcements || [] });
       if (section === "Plans") setData({ plans: (await api.adminPlans()).plans });
@@ -206,6 +179,7 @@ export default function AdminDashboard() {
       {tab === "Earnings" && <Earnings data={data.earnings || {}} onFilter={(p) => load("Earnings", p)} />}
       {tab === "Users" && <Users rows={data.users || []} update={update} onFilter={(p) => load("Users", p)} />}
       {tab === "User Access" && <UserAccess rows={data.users || []} update={update} />}
+      {tab === "Lucky Wheel" && <AdminLuckyWheel data={data.luckyWheel || {}} update={update} />}
       {tab === "Team" && <AdminTeam data={data.team} />}
       {tab === "Deposits" && <Deposits rows={data.deposits || []} update={update} onFilter={(p) => load("Deposits", p)} />}
       {tab === "Withdrawals" && <Withdrawals rows={data.withdrawals || []} update={update} onFilter={(p) => load("Withdrawals", p)} />}
@@ -2785,6 +2759,433 @@ function Support({ rows, update }) {
           );
         })}
       </Table>
+    </>
+  );
+}
+
+function AdminLuckyWheel({ data = {}, update }) {
+  const settings = data.settings || {
+    segments: [50, 100, 200, 300, 450, 500, 550, 600, 650, 700],
+    defaultWinAmount: 100,
+    autoSpinOnDeposit: false,
+    depositWinAmount: 200
+  };
+  const users = data.users || [];
+  const logs = data.logs || [];
+
+  // Settings form state
+  const [segmentsInput, setSegmentsInput] = useState(
+    Array.isArray(settings.segments) ? settings.segments.join(", ") : "50, 100, 200, 300, 450, 500, 550, 600, 650, 700"
+  );
+  const [defaultWin, setDefaultWin] = useState(settings.defaultWinAmount || 100);
+  const [autoDeposit, setAutoDeposit] = useState(settings.autoSpinOnDeposit || false);
+  const [depositWin, setDepositWin] = useState(settings.depositWinAmount || 200);
+  const [saveStatus, setSaveStatus] = useState("");
+
+  // Give Spin Form state
+  const [targetUserId, setTargetUserId] = useState("");
+  const [spinsToAdd, setSpinsToAdd] = useState(1);
+  const [assignedPrize, setAssignedPrize] = useState("100");
+  const [giveStatus, setGiveStatus] = useState("");
+
+  // Search filter for user table
+  const [userSearch, setUserSearch] = useState("");
+
+  // Edit User Spins Modal / Inline State
+  const [editUser, setEditUser] = useState(null);
+  const [editSpinsCount, setEditSpinsCount] = useState(0);
+  const [editAssignedPrize, setEditAssignedPrize] = useState("");
+
+  const currentSegmentOptions = useMemo(() => {
+    return segmentsInput
+      .split(",")
+      .map((s) => Number(s.trim()))
+      .filter((n) => !isNaN(n) && n > 0);
+  }, [segmentsInput]);
+
+  const handleSaveSettings = async (e) => {
+    e.preventDefault();
+    setSaveStatus("Saving...");
+    try {
+      const parsedSegments = segmentsInput
+        .split(",")
+        .map((s) => Number(s.trim()))
+        .filter((n) => !isNaN(n) && n > 0);
+      if (parsedSegments.length !== 10) {
+        throw new Error("Wheel must have exactly 10 comma-separated prize amounts.");
+      }
+      await update(() =>
+        api.adminSaveWheelSettings({
+          segments: parsedSegments,
+          defaultWinAmount: Number(defaultWin),
+          autoSpinOnDeposit: autoDeposit,
+          depositWinAmount: Number(depositWin)
+        })
+      );
+      setSaveStatus("✓ Lucky wheel settings updated successfully!");
+    } catch (err) {
+      setSaveStatus(`Error: ${err.message}`);
+    }
+  };
+
+  const handleGiveSpin = async (e) => {
+    e.preventDefault();
+    if (!targetUserId) return setGiveStatus("Please select or specify a user.");
+    setGiveStatus("Assigning spin...");
+    try {
+      await update(() =>
+        api.adminGiveSpin({
+          userId: targetUserId,
+          spinsCount: Number(spinsToAdd || 1),
+          assignedAmount: assignedPrize === "default" || !assignedPrize ? null : Number(assignedPrize)
+        })
+      );
+      setGiveStatus("✓ Spin successfully granted to user with assigned prize!");
+      setTargetUserId("");
+    } catch (err) {
+      setGiveStatus(`Error: ${err.message}`);
+    }
+  };
+
+  const handleSaveUserEdit = async () => {
+    if (!editUser) return;
+    try {
+      await update(() =>
+        api.adminSetUserSpins({
+          userId: editUser.id,
+          spinsAvailable: Number(editSpinsCount || 0),
+          assignedAmount: editAssignedPrize === "default" || !editAssignedPrize ? null : Number(editAssignedPrize)
+        })
+      );
+      setEditUser(null);
+    } catch (err) {
+      alert(`Error updating user: ${err.message}`);
+    }
+  };
+
+  const filteredUsers = useMemo(() => {
+    if (!userSearch.trim()) return users;
+    const q = userSearch.toLowerCase();
+    return users.filter(
+      (u) =>
+        (u.phone && u.phone.includes(q)) ||
+        (u.full_name && u.full_name.toLowerCase().includes(q)) ||
+        String(u.id).includes(q)
+    );
+  }, [users, userSearch]);
+
+  return (
+    <>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
+        <div>
+          <h2 className="admin-section-title" style={{ margin: "0 0 4px" }}>🎡 Lucky Wheel / Spin Control Center</h2>
+          <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>Control wheel prize segments, assign spins to specific users, and set guaranteed winning amounts.</p>
+        </div>
+      </div>
+
+      {/* Top Grid: Global Settings + Give Spin Box */}
+      <div className="admin-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "16px", marginBottom: "24px" }}>
+        
+        {/* 1. Global Wheel Settings Card */}
+        <div style={{ background: "#ffffff", padding: "18px", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+          <h3 style={{ margin: "0 0 12px", fontSize: "15px", color: "#0f172a" }}>⚙️ Global Wheel Configuration</h3>
+          <form onSubmit={handleSaveSettings}>
+            <label style={{ display: "block", marginBottom: "10px", fontSize: "12px", fontWeight: 600, color: "#334155" }}>
+              10 Wheel Prize Segments (Comma-separated PKR):
+              <input
+                type="text"
+                value={segmentsInput}
+                onChange={(e) => setSegmentsInput(e.target.value)}
+                style={{ width: "100%", padding: "8px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", marginTop: "4px" }}
+              />
+              <small style={{ color: "#64748b", fontWeight: 400 }}>Must be exactly 10 numbers (e.g. 50, 100, 200, 300, 450, 500, 550, 600, 650, 700)</small>
+            </label>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
+              <label style={{ fontSize: "12px", fontWeight: 600, color: "#334155" }}>
+                Default Win Amount:
+                <select
+                  value={defaultWin}
+                  onChange={(e) => setDefaultWin(e.target.value)}
+                  style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", marginTop: "4px" }}
+                >
+                  {currentSegmentOptions.map((amt) => (
+                    <option key={amt} value={amt}>Rs. {amt}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ fontSize: "12px", fontWeight: 600, color: "#334155" }}>
+                Deposit Auto-Win Prize:
+                <select
+                  value={depositWin}
+                  onChange={(e) => setDepositWin(e.target.value)}
+                  style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", marginTop: "4px" }}
+                >
+                  {currentSegmentOptions.map((amt) => (
+                    <option key={amt} value={amt}>Rs. {amt}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: "#1e293b", fontWeight: 600, marginBottom: "14px", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={autoDeposit}
+                onChange={(e) => setAutoDeposit(e.target.checked)}
+                style={{ width: "16px", height: "16px", accentColor: "#008747" }}
+              />
+              Automatically give +1 spin when user's recharge is approved
+            </label>
+
+            <button
+              type="submit"
+              style={{ width: "100%", padding: "10px", background: "#008747", color: "#fff", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}
+            >
+              💾 Save Global Wheel Settings
+            </button>
+            {saveStatus && <p style={{ marginTop: "8px", fontSize: "12px", color: saveStatus.startsWith("✓") ? "#166534" : "#dc2626", fontWeight: 600 }}>{saveStatus}</p>}
+          </form>
+        </div>
+
+        {/* 2. Give Spin / Assign Exact Winning Amount to User */}
+        <div style={{ background: "#ffffff", padding: "18px", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+          <h3 style={{ margin: "0 0 12px", fontSize: "15px", color: "#0f172a" }}>🎁 Assign Spin &amp; Guaranteed Prize to User</h3>
+          <form onSubmit={handleGiveSpin}>
+            <label style={{ display: "block", marginBottom: "10px", fontSize: "12px", fontWeight: 600, color: "#334155" }}>
+              Select Eligible User:
+              <select
+                value={targetUserId}
+                onChange={(e) => setTargetUserId(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", marginTop: "4px" }}
+              >
+                <option value="">-- Choose a user by phone / name --</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.phone} — {u.full_name || "User"} (Current spins: {u.spins_available})
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "14px" }}>
+              <label style={{ fontSize: "12px", fontWeight: 600, color: "#334155" }}>
+                Number of Spins:
+                <select
+                  value={spinsToAdd}
+                  onChange={(e) => setSpinsToAdd(Number(e.target.value))}
+                  style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", marginTop: "4px" }}
+                >
+                  <option value={1}>1 Spin (Single use)</option>
+                  <option value={2}>2 Spins</option>
+                  <option value={3}>3 Spins</option>
+                  <option value={5}>5 Spins</option>
+                  <option value={10}>10 Spins</option>
+                </select>
+              </label>
+
+              <label style={{ fontSize: "12px", fontWeight: 600, color: "#334155" }}>
+                Guaranteed Win Amount:
+                <select
+                  value={assignedPrize}
+                  onChange={(e) => setAssignedPrize(e.target.value)}
+                  style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", marginTop: "4px", background: "#f0fdf4", fontWeight: 700, color: "#166534" }}
+                >
+                  <option value="default">Default Amount (Rs. {defaultWin})</option>
+                  {currentSegmentOptions.map((amt) => (
+                    <option key={amt} value={amt}>Guaranteed: Rs. {amt}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <button
+              type="submit"
+              style={{ width: "100%", padding: "10px", background: "#0f172a", color: "#fff", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}
+            >
+              🎯 Grant Spin &amp; Lock Prize Outcome
+            </button>
+            {giveStatus && <p style={{ marginTop: "8px", fontSize: "12px", color: giveStatus.startsWith("✓") ? "#166534" : "#dc2626", fontWeight: 600 }}>{giveStatus}</p>}
+          </form>
+        </div>
+      </div>
+
+      {/* User Spin Status Table */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "10px" }}>
+        <h3 style={{ margin: 0, fontSize: "16px", color: "#1e293b" }}>👥 Active Users Spin Allocations ({users.length} users)</h3>
+        <input
+          type="text"
+          placeholder="Filter user phone, name..."
+          value={userSearch}
+          onChange={(e) => setUserSearch(e.target.value)}
+          style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", minWidth: "200px" }}
+        />
+      </div>
+
+      <Table headers={["User", "Available Spins", "Locked Win Prize", "Spins Completed", "Total Cash Won", "Actions"]}>
+        {filteredUsers.map((u) => (
+          <tr key={u.id}>
+            <td>
+              <strong>{u.full_name || u.phone}</strong>
+              <small>{u.phone}</small>
+            </td>
+            <td>
+              <span
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: "6px",
+                  fontSize: "12px",
+                  fontWeight: 800,
+                  background: u.spins_available > 0 ? "#dcfce7" : "#f1f5f9",
+                  color: u.spins_available > 0 ? "#166534" : "#64748b"
+                }}
+              >
+                {u.spins_available} {u.spins_available === 1 ? "Spin" : "Spins"}
+              </span>
+            </td>
+            <td>
+              {u.assigned_amount ? (
+                <strong style={{ color: "#166534" }}>Rs. {Number(u.assigned_amount).toLocaleString()}</strong>
+              ) : (
+                <span style={{ color: "#94a3b8" }}>Default (Rs. {defaultWin})</span>
+              )}
+            </td>
+            <td>{u.total_spins_done || 0} times</td>
+            <td>
+              <strong style={{ color: "#0f172a" }}>Rs. {Number(u.total_won_amount || 0).toLocaleString()}</strong>
+            </td>
+            <td>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    update(() =>
+                      api.adminGiveSpin({
+                        userId: u.id,
+                        spinsCount: 1,
+                        assignedAmount: u.assigned_amount || defaultWin
+                      })
+                    )
+                  }
+                  style={{ background: "#008747", color: "#fff", border: "none", padding: "4px 8px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+                >
+                  +1 Spin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditUser(u);
+                    setEditSpinsCount(u.spins_available);
+                    setEditAssignedPrize(u.assigned_amount ? String(u.assigned_amount) : "default");
+                  }}
+                  style={{ background: "#0284c7", color: "#fff", border: "none", padding: "4px 8px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+                >
+                  Edit Prize
+                </button>
+                {u.spins_available > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm(`Reset spins for ${u.phone} to 0?`)) {
+                        update(() => api.adminResetUserSpins(u.id));
+                      }
+                    }}
+                    style={{ background: "#dc2626", color: "#fff", border: "none", padding: "4px 8px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            </td>
+          </tr>
+        ))}
+      </Table>
+
+      {/* Edit User Spins Modal */}
+      {editUser && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "16px"
+          }}
+        >
+          <div style={{ background: "#fff", borderRadius: "14px", padding: "20px", maxWidth: "400px", width: "100%" }}>
+            <h3 style={{ margin: "0 0 4px", fontSize: "17px", color: "#0f172a" }}>Edit Spins for {editUser.phone}</h3>
+            <p style={{ margin: "0 0 16px", fontSize: "13px", color: "#64748b" }}>{editUser.full_name || "User"}</p>
+
+            <label style={{ display: "block", marginBottom: "12px", fontSize: "13px", fontWeight: 600 }}>
+              Available Spins:
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={editSpinsCount}
+                onChange={(e) => setEditSpinsCount(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #cbd5e1", marginTop: "4px" }}
+              />
+            </label>
+
+            <label style={{ display: "block", marginBottom: "18px", fontSize: "13px", fontWeight: 600 }}>
+              Guaranteed Winning Prize:
+              <select
+                value={editAssignedPrize}
+                onChange={(e) => setEditAssignedPrize(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #cbd5e1", marginTop: "4px", fontWeight: 700, color: "#166534" }}
+              >
+                <option value="default">Default Win (Rs. {defaultWin})</option>
+                {currentSegmentOptions.map((amt) => (
+                  <option key={amt} value={amt}>Guaranteed: Rs. {amt}</option>
+                ))}
+              </select>
+            </label>
+
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                type="button"
+                onClick={handleSaveUserEdit}
+                style={{ flex: 1, padding: "10px", background: "#008747", color: "#fff", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditUser(null)}
+                style={{ padding: "10px 16px", background: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", borderRadius: "8px", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recent Spin History Logs */}
+      <h3 style={{ margin: "28px 0 12px", fontSize: "16px", color: "#1e293b" }}>📜 Recent Spin Activity Log ({logs.length} records)</h3>
+      {logs.length === 0 ? (
+        <p style={{ color: "#64748b", padding: "16px", background: "#f8fafc", borderRadius: "8px" }}>No spin activities recorded yet.</p>
+      ) : (
+        <Table headers={["User Phone", "Name", "Cash Prize Won", "Date & Time", "Status"]}>
+          {logs.map((log) => (
+            <tr key={log.id}>
+              <td><strong>{log.phone}</strong></td>
+              <td>{log.full_name || "—"}</td>
+              <td><strong style={{ color: "#166534" }}>Rs. {Number(log.amount_won).toLocaleString()}</strong></td>
+              <td><small>{log.created_at ? new Date(log.created_at).toLocaleString() : "—"}</small></td>
+              <td><span style={{ background: "#dcfce7", color: "#166534", padding: "3px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: 700 }}>Credited</span></td>
+            </tr>
+          ))}
+        </Table>
+      )}
     </>
   );
 }

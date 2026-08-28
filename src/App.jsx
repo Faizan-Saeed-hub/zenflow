@@ -21,6 +21,7 @@ import NewsCenter from "./pages/NewsCenter";
 import WealthFund from "./pages/WealthFund";
 import WithdrawRewards from "./pages/WithdrawRewards";
 import Recharge from "./pages/Recharge";
+import LuckyWheel from "./pages/LuckyWheel";
 import TaskDetail from "./pages/TaskDetail";
 import TaskLibrary from "./pages/TaskLibrary";
 import CompletedTasks from "./pages/CompletedTasks";
@@ -68,6 +69,8 @@ export default function App() {
       <Route element={<ProtectedRoute />}>
         <Route path="/home" element={<Home />} />
         <Route path="/tasks" element={<Tasks />} />
+        <Route path="/lucky-wheel" element={<LuckyWheel />} />
+        <Route path="/lucky-draw" element={<LuckyWheel />} />
         <Route path="/daily-check-in" element={<DailyCheckIn />} />
         <Route path="/loan" element={<LoanCenter />} />
         <Route path="/news" element={<NewsCenter />} />

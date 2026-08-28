@@ -218,7 +218,7 @@ async function ensureNewTables() {
     "plan_purchases", "daily_checkins", "wallet_transactions", "deposits",
     "payout_accounts", "withdrawals", "reward_history", "team_earnings", "notifications",
     "support_requests", "wealth_funds", "wealth_purchases", "loans", "news", "payment_settings",
-    "announcements"
+    "announcements", "lucky_spins", "lucky_spin_logs", "lucky_wheel_settings"
   ];
   const missing = [];
   for (const table of requiredTables) {

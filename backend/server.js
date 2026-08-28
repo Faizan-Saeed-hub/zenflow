@@ -23,6 +23,7 @@ import rewardsRoutes from "./routes/rewards.js";
 import adminRoutes from "./routes/admin.js";
 import depositRoutes from "./routes/deposits.js";
 import contentRoutes from "./routes/content.js";
+import luckyWheelRoutes from "./routes/luckyWheel.js";
 import { runSetupDb } from "./setup-db.js";
 import { runCreateAdmin } from "./create-admin.js";
 
@@ -65,6 +66,7 @@ app.use("/api/team",teamRoutes);
 app.use("/api/rewards",rewardsRoutes);
 app.use("/api/admin",adminRoutes);
 app.use("/api/content",contentRoutes);
+app.use("/api/lucky-wheel",luckyWheelRoutes);
 
 // Serve built frontend and public static assets with caching
 const distPath = path.resolve(__dirname, "..", "dist");

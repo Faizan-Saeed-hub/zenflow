@@ -485,6 +485,35 @@ export const api = {
     request("/admin/import/withdrawals", {
       method: "POST",
       body: JSON.stringify({ withdrawals })
+    }),
+
+  // Lucky Wheel / Lucky Draw Client Endpoints
+  luckyWheelStatus: () => request("/lucky-wheel"),
+  luckyWheelSpin: () =>
+    request("/lucky-wheel/spin", {
+      method: "POST"
+    }),
+
+  // Lucky Wheel Admin Endpoints
+  adminLuckyWheel: () => request("/admin/lucky-wheel"),
+  adminGiveSpin: (payload) =>
+    request("/admin/lucky-wheel/give-spin", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  adminSetUserSpins: (payload) =>
+    request("/admin/lucky-wheel/set-user-spins", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  adminSaveWheelSettings: (payload) =>
+    request("/admin/lucky-wheel/settings", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  adminResetUserSpins: (userId) =>
+    request(`/admin/lucky-wheel/user/${userId}`, {
+      method: "DELETE"
     })
 };
 

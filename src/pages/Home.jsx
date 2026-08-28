@@ -11,7 +11,7 @@ const quickActions = [
   ["/zenflow-images/home-icons/checkin-C7plALg_.png", "Daily Check-in", "/daily-check-in"],
   ["/zenflow-images/home-icons/news-8MOaXlE-.png", "News Center", "/news"],
   ["/zenflow-images/home-icons/loan-BUOINAkF.png", "Loan", "/loan"],
-  ["/zenflow-images/home-icons/draw-DCUxEfsO.png", "Lucky Draw", "/tasks"],
+  ["/zenflow-images/home-icons/draw-DCUxEfsO.png", "Lucky Draw", "/lucky-wheel"],
 ];
 
 const heroBanners = [

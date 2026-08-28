@@ -311,6 +311,21 @@ router.patch("/deposits/:id", async (req,res) => {
       const before=Number(u.wallet_balance||0); const after=before+Number(d.amount);
       await c.query("UPDATE users SET wallet_balance=wallet_balance+? WHERE id=?",[d.amount,d.user_id]);
       await c.query("INSERT INTO wallet_transactions(user_id,type,amount,status,reference,note) VALUES(?,'deposit',?,'completed',?,?)",[d.user_id,d.amount,d.tid,`Recharge ${d.plan_code} approved; credited to Personal Wallet`]);
+
+      // Check if auto spin on deposit is enabled
+      try {
+        const [[autoSpinRow]] = await c.query("SELECT setting_val FROM lucky_wheel_settings WHERE setting_key = 'auto_spin_on_deposit' LIMIT 1");
+        if (autoSpinRow && (String(autoSpinRow.setting_val) === "1" || String(autoSpinRow.setting_val) === "true")) {
+          const [[depWinRow]] = await c.query("SELECT setting_val FROM lucky_wheel_settings WHERE setting_key = 'deposit_win_amount' LIMIT 1");
+          const depWinAmount = depWinRow ? Number(depWinRow.setting_val || 200) : 200;
+          await c.query(
+            `INSERT INTO lucky_spins (user_id, spins_available, assigned_amount)
+             VALUES (?, 1, ?)
+             ON DUPLICATE KEY UPDATE spins_available = spins_available + 1, assigned_amount = COALESCE(?, assigned_amount)`,
+            [d.user_id, depWinAmount, depWinAmount]
+          );
+        }
+      } catch (_) {}
     }
 
     await c.query("UPDATE deposits SET status=?,reviewed_at=NOW() WHERE id=?",[status,d.id]);
@@ -1054,6 +1069,148 @@ router.post("/import/withdrawals", async (req, res) => {
     imported: importedCount,
     errors
   });
+});
+
+// ==========================================
+// LUCKY WHEEL ADMIN MANAGEMENT
+// ==========================================
+router.get("/lucky-wheel", async (_req, res) => {
+  const db = getPool();
+  try {
+    const [settingsRows] = await db.query("SELECT setting_key, setting_val FROM lucky_wheel_settings");
+    const settings = {
+      segments: [50, 100, 200, 300, 450, 500, 550, 600, 650, 700],
+      defaultWinAmount: 100,
+      autoSpinOnDeposit: false,
+      depositWinAmount: 200
+    };
+    settingsRows.forEach((r) => {
+      if (r.setting_key === "wheel_segments") {
+        try { settings.segments = JSON.parse(r.setting_val); } catch (_) {}
+      } else if (r.setting_key === "default_win_amount") {
+        settings.defaultWinAmount = Number(r.setting_val || 100);
+      } else if (r.setting_key === "auto_spin_on_deposit") {
+        settings.autoSpinOnDeposit = r.setting_val === "1" || r.setting_val === "true";
+      } else if (r.setting_key === "deposit_win_amount") {
+        settings.depositWinAmount = Number(r.setting_val || 200);
+      }
+    });
+
+    const [users] = await db.query(
+      `SELECT u.id, u.phone, u.full_name, u.role, u.commission_balance, u.wallet_balance,
+              COALESCE(ls.spins_available, 0) AS spins_available,
+              ls.assigned_amount,
+              (SELECT COUNT(*) FROM lucky_spin_logs lsl WHERE lsl.user_id = u.id) AS total_spins_done,
+              (SELECT COALESCE(SUM(lsl.amount_won), 0) FROM lucky_spin_logs lsl WHERE lsl.user_id = u.id) AS total_won_amount
+       FROM users u
+       LEFT JOIN lucky_spins ls ON ls.user_id = u.id
+       WHERE u.role = 'user'
+       ORDER BY (COALESCE(ls.spins_available, 0) > 0) DESC, u.id DESC`
+    );
+
+    const [logs] = await db.query(
+      `SELECT lsl.id, lsl.user_id, u.phone, u.full_name, lsl.amount_won, lsl.created_at
+       FROM lucky_spin_logs lsl
+       JOIN users u ON u.id = lsl.user_id
+       ORDER BY lsl.id DESC LIMIT 100`
+    );
+
+    res.json({ settings, users, logs });
+  } catch (err) {
+    console.error("Admin lucky wheel error:", err);
+    res.status(500).json({ message: "Unable to load lucky wheel data." });
+  }
+});
+
+router.post("/lucky-wheel/give-spin", async (req, res) => {
+  const { userId, spinsCount = 1, assignedAmount = null } = req.body || {};
+  if (!userId) return res.status(400).json({ message: "User ID is required." });
+  const db = getPool();
+  try {
+    const finalAssigned = assignedAmount !== null && Number(assignedAmount) > 0 ? Number(assignedAmount) : null;
+    await db.query(
+      `INSERT INTO lucky_spins (user_id, spins_available, assigned_amount)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         spins_available = spins_available + VALUES(spins_available),
+         assigned_amount = COALESCE(VALUES(assigned_amount), assigned_amount)`,
+      [userId, Number(spinsCount || 1), finalAssigned]
+    );
+
+    await db.query(
+      `INSERT INTO notifications (user_id, type, title, message)
+       VALUES (?, 'Bonus', '🎉 Lucky Spin Received!', 'You received a free Lucky Draw Spin! Go to Lucky Draw to spin and claim your cash prize.')`,
+      [userId]
+    );
+
+    res.json({ message: `Assigned ${spinsCount} spin(s) to user successfully.` });
+  } catch (err) {
+    console.error("Give spin error:", err);
+    res.status(500).json({ message: "Unable to give spin: " + err.message });
+  }
+});
+
+router.post("/lucky-wheel/set-user-spins", async (req, res) => {
+  const { userId, spinsAvailable = 0, assignedAmount = null } = req.body || {};
+  if (!userId) return res.status(400).json({ message: "User ID is required." });
+  const db = getPool();
+  try {
+    const finalAssigned = assignedAmount !== null && Number(assignedAmount) > 0 ? Number(assignedAmount) : null;
+    await db.query(
+      `INSERT INTO lucky_spins (user_id, spins_available, assigned_amount)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         spins_available = VALUES(spins_available),
+         assigned_amount = VALUES(assigned_amount)`,
+      [userId, Number(spinsAvailable), finalAssigned]
+    );
+    res.json({ message: "User spin balance updated." });
+  } catch (err) {
+    res.status(500).json({ message: "Unable to update user spins: " + err.message });
+  }
+});
+
+router.post("/lucky-wheel/settings", async (req, res) => {
+  const { segments, defaultWinAmount, autoSpinOnDeposit, depositWinAmount } = req.body || {};
+  const db = getPool();
+  try {
+    if (Array.isArray(segments)) {
+      await db.query(
+        "INSERT INTO lucky_wheel_settings (setting_key, setting_val) VALUES ('wheel_segments', ?) ON DUPLICATE KEY UPDATE setting_val = VALUES(setting_val)",
+        [JSON.stringify(segments)]
+      );
+    }
+    if (defaultWinAmount !== undefined) {
+      await db.query(
+        "INSERT INTO lucky_wheel_settings (setting_key, setting_val) VALUES ('default_win_amount', ?) ON DUPLICATE KEY UPDATE setting_val = VALUES(setting_val)",
+        [String(defaultWinAmount)]
+      );
+    }
+    if (autoSpinOnDeposit !== undefined) {
+      await db.query(
+        "INSERT INTO lucky_wheel_settings (setting_key, setting_val) VALUES ('auto_spin_on_deposit', ?) ON DUPLICATE KEY UPDATE setting_val = VALUES(setting_val)",
+        [autoSpinOnDeposit ? "1" : "0"]
+      );
+    }
+    if (depositWinAmount !== undefined) {
+      await db.query(
+        "INSERT INTO lucky_wheel_settings (setting_key, setting_val) VALUES ('deposit_win_amount', ?) ON DUPLICATE KEY UPDATE setting_val = VALUES(setting_val)",
+        [String(depositWinAmount)]
+      );
+    }
+    res.json({ message: "Lucky wheel settings saved successfully." });
+  } catch (err) {
+    res.status(500).json({ message: "Unable to save wheel settings: " + err.message });
+  }
+});
+
+router.delete("/lucky-wheel/user/:userId", async (req, res) => {
+  try {
+    await getPool().query("DELETE FROM lucky_spins WHERE user_id = ?", [req.params.userId]);
+    res.json({ message: "User spins reset to 0." });
+  } catch (err) {
+    res.status(500).json({ message: "Unable to reset spins." });
+  }
 });
 
 export default router;

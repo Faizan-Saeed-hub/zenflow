@@ -341,3 +341,37 @@ INSERT IGNORE INTO tasks (id,title,description,image_url,reward,plan_required,st
 INSERT IGNORE INTO tasks (id,title,description,image_url,reward,plan_required,status) VALUES (23,'Under the Old Clock','Read this long book-review passage carefully, complete the reading, choose a rating, and claim the reward after submission. The story follows ordinary people through a reflective sequence of events, with attention to memory, responsibility, friendship, and the small decisions that change how a familiar place feels.','/src/assets/book-covers/book-23.svg',30,'F1','active');
 INSERT IGNORE INTO tasks (id,title,description,image_url,reward,plan_required,status) VALUES (24,'A Long Evening','Read this long book-review passage carefully, complete the reading, choose a rating, and claim the reward after submission. The story follows ordinary people through a reflective sequence of events, with attention to memory, responsibility, friendship, and the small decisions that change how a familiar place feels.','/src/assets/book-covers/book-24.svg',30,'F1','active');
 INSERT IGNORE INTO tasks (id,title,description,image_url,reward,plan_required,status) VALUES (25,'The Far Shore','Read this long book-review passage carefully, complete the reading, choose a rating, and claim the reward after submission. The story follows ordinary people through a reflective sequence of events, with attention to memory, responsibility, friendship, and the small decisions that change how a familiar place feels.','/src/assets/book-covers/book-25.svg',30,'F1','active');
+
+CREATE TABLE IF NOT EXISTS lucky_spins (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL UNIQUE,
+  spins_available INT UNSIGNED NOT NULL DEFAULT 0,
+  assigned_amount DECIMAL(18,2) NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  CONSTRAINT fk_lucky_spins_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS lucky_spin_logs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  amount_won DECIMAL(18,2) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  CONSTRAINT fk_lucky_logs_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS lucky_wheel_settings (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  setting_key VARCHAR(50) NOT NULL UNIQUE,
+  setting_val TEXT NOT NULL,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB;
+
+INSERT INTO lucky_wheel_settings (setting_key, setting_val) VALUES
+('wheel_segments', '[50, 100, 200, 300, 450, 500, 550, 600, 650, 700]'),
+('default_win_amount', '100'),
+('auto_spin_on_deposit', '0'),
+('deposit_win_amount', '200')
+ON DUPLICATE KEY UPDATE setting_val=VALUES(setting_val);
+
