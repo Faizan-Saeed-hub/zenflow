@@ -37,32 +37,34 @@ export default function Tasks() {
 
   const handleInstantComplete = async (taskId, rewardAmount) => {
     if (busyTaskId) return;
+    const taskObj = tasks.find((t) => t.id === taskId);
+    if (taskObj?.submission_status === "approved") return;
+
     setBusyTaskId(taskId);
     setError("");
+    const earned = Number(taskObj?.reward || rewardAmount || 30);
 
+    // 1. Instant optimistic state update (instant award within 0ms)
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, submission_status: "approved" } : t))
+    );
+    setMeta((prev) => ({
+      ...prev,
+      completedToday: (prev.completedToday || 0) + 1,
+      remaining: Math.max(0, (prev.remaining || 1) - 1),
+      todayEarnings: (prev.todayEarnings || 0) + earned
+    }));
+
+    setToast(`🎉 Task completed! Rs. ${earned.toLocaleString()} credited to your Commission Wallet.`);
+    setTimeout(() => setToast(""), 3500);
+
+    // 2. Instant server submission
     try {
-      const res = await api.completeTask(taskId);
-      const earned = Number(res.reward || rewardAmount || 30);
-
-      // Instant optimistic update
-      setTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, submission_status: "approved" } : t))
-      );
-      setMeta((prev) => ({
-        ...prev,
-        completedToday: (prev.completedToday || 0) + 1,
-        remaining: Math.max(0, (prev.remaining || 1) - 1),
-        todayEarnings: (prev.todayEarnings || 0) + earned
-      }));
-      
-      // Refresh user account balance in background
+      await api.completeTask(taskId);
       api.me().catch(() => {});
-
-      setToast(`🎉 Task completed! Rs. ${earned.toLocaleString()} credited to your Commission Wallet.`);
-      setTimeout(() => setToast(""), 4000);
-      load();
     } catch (err) {
       setError(err.message || "Failed to complete task.");
+      load();
     } finally {
       setBusyTaskId(null);
     }
@@ -91,20 +93,32 @@ export default function Tasks() {
       </header>
 
       <main className="tasks-content">
+        {toast && (
+          <div
+            style={{
+              background: "#dcfce7",
+              color: "#166534",
+              border: "1px solid #bbf7d0",
+              borderRadius: "10px",
+              padding: "10px 14px",
+              marginBottom: "12px",
+              fontWeight: 700,
+              fontSize: "13px",
+              textAlign: "center",
+              animation: "fadeIn 0.2s ease"
+            }}
+          >
+            {toast}
+          </div>
+        )}
+
         <section className="plan-strip">
           <div className="plan-icon">♛</div>
           <div className="plan-copy">
-            <strong>
-              {meta.plan?.name ||
-                (meta.trialExpired ? "Intern trial ended" : `Intern trial (Day ${meta.trialDay || 1}/3)`)}
-            </strong>
-            <span>
-              {meta.trialExpired
-                ? "Trial period completed"
-                : `${meta.completedToday} of ${meta.dailyLimit} completed today · Rs. ${Number(meta.todayEarnings || 0).toLocaleString()} earned`}
-            </span>
+            <strong>{meta.plan?.name || (meta.trialExpired ? "Trial expired" : "Intern trial")}</strong>
+            <span>{meta.completedToday || 0} completed today</span>
           </div>
-          <NavLink to="/plans">View plans</NavLink>
+          <button onClick={() => navigate("/plans")}>View plans</button>
         </section>
 
         {meta.trialExpired && (
@@ -132,8 +146,6 @@ export default function Tasks() {
           </div>
         )}
 
-        {toast && <div className="toast success-toast" style={{ marginBottom: "12px" }}>{toast}</div>}
-
         <div className="task-tabs">
           {["Today", "Completed", "Library"].map((item) => (
             <button
@@ -153,8 +165,15 @@ export default function Tasks() {
             const done = task.submission_status === "approved";
             const isBusy = busyTaskId === task.id;
             return (
-              <article className="task-card" key={task.id}>
-                <div className="task-image-wrap" onClick={() => !done && navigate(`/tasks/view/${task.id}`)} style={{ cursor: done ? "default" : "pointer" }}>
+              <article
+                className="task-card"
+                key={task.id}
+                onClick={() => {
+                  if (!done && !isBusy) handleInstantComplete(task.id, task.reward);
+                }}
+                style={{ cursor: done ? "default" : "pointer" }}
+              >
+                <div className="task-image-wrap">
                   <img
                     src={fallbackImages[task.title] || task.image_url || "/zenflow-images/task-cards/book-letters-to-shirin.png"}
                     alt={task.title}
@@ -165,8 +184,8 @@ export default function Tasks() {
                   </div>
                 </div>
                 <div className="task-card-body">
-                  <strong onClick={() => !done && navigate(`/tasks/view/${task.id}`)} style={{ cursor: done ? "default" : "pointer" }}>{task.title}</strong>
-                  <small>Book Review</small>
+                  <strong>{task.title}</strong>
+                  <small>Book Review · Instant Reward</small>
                   <div className="reward-row">
                     <span>{done ? "Reward earned" : "Reward"}</span>
                     <b>Rs. {Number(task.reward || 30).toLocaleString()}</b>
@@ -174,7 +193,8 @@ export default function Tasks() {
                   <button
                     className={done ? "read-button done" : "read-button"}
                     disabled={done || isBusy}
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       if (!done) handleInstantComplete(task.id, task.reward);
                     }}
                     style={{

@@ -78,23 +78,6 @@ export function processImageUpload(file, maxWidth = 1200, quality = 0.85) {
   });
 }
 
-export function exportToCsv(filename, headers, dataRows) {
-  const escapeCsv = (val) => `"${String(val ?? "").replace(/"/g, '""')}"`;
-  const csvContent = [
-    headers.map(escapeCsv).join(","),
-    ...dataRows.map((row) => row.map(escapeCsv).join(","))
-  ].join("\n");
-
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.setAttribute("href", url);
-  link.setAttribute("download", `${filename}_${new Date().toISOString().slice(0, 10)}.csv`);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-}
-
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [tab, setTab] = useState("Overview");
@@ -231,13 +214,6 @@ function Overview({ stats = {}, onSelectTab }) {
             style={{ background: "#008747", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}
           >
             💰 View Earnings
-          </button>
-          <button
-            type="button"
-            onClick={() => onSelectTab("Import / Export")}
-            style={{ background: "#0f172a", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}
-          >
-            🔄 Data Share / Export
           </button>
         </div>
       </div>
@@ -1375,59 +1351,12 @@ function Earnings({ data = {}, onFilter }) {
     onFilter({});
   };
 
-  const handleExportDailyCsv = () => {
-    const headers = ["Date", "Approved Revenue (PKR)", "Pending Volume (PKR)", "Rejected Volume (PKR)", "Total Volume (PKR)", "Total Requests", "Unique Depositors"];
-    const dataRows = dailyBreakdown.map((r) => [
-      r.date_day ? new Date(r.date_day).toLocaleDateString() : "",
-      r.approved_amount,
-      r.pending_amount,
-      r.rejected_amount,
-      r.total_amount,
-      r.total_count,
-      r.unique_depositors
-    ]);
-    exportToCsv("zenflow_daily_earnings", headers, dataRows);
-  };
-
-  const handleExportDepositsCsv = () => {
-    const headers = ["ID", "User Phone", "User Name", "Plan Code", "Amount (PKR)", "Payment Method", "TID", "Wallet Number", "Status", "Date & Time"];
-    const dataRows = deposits.map((r) => [
-      r.id,
-      r.phone,
-      r.full_name || "",
-      r.plan_code || "",
-      r.amount,
-      r.payment_method || "",
-      r.tid || "",
-      r.wallet_number || "",
-      r.status,
-      r.submitted_at ? new Date(r.submitted_at).toLocaleString() : ""
-    ]);
-    exportToCsv("zenflow_earnings_transactions", headers, dataRows);
-  };
-
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
         <div>
           <h2 className="admin-section-title" style={{ margin: "0 0 4px" }}>💰 Platform Earnings &amp; Deposit Revenue</h2>
           <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>Track all platform revenue, daily collections, and deposit breakdowns</p>
-        </div>
-        <div style={{ display: "flex", gap: "8px" }}>
-          <button
-            type="button"
-            onClick={handleExportDailyCsv}
-            style={{ background: "#008747", color: "#fff", border: "none", padding: "8px 14px", borderRadius: "8px", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}
-          >
-            📊 Export Daily Summary CSV
-          </button>
-          <button
-            type="button"
-            onClick={handleExportDepositsCsv}
-            style={{ background: "#0f172a", color: "#fff", border: "none", padding: "8px 14px", borderRadius: "8px", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}
-          >
-            💾 Export Transactions CSV
-          </button>
         </div>
       </div>
 
@@ -1642,34 +1571,10 @@ function Deposits({ rows, update, onFilter }) {
     onFilter({});
   };
 
-  const handleExportCsv = () => {
-    const headers = ["ID", "User Phone", "User Name", "Plan Code", "Amount (PKR)", "Payment Method", "TID", "Wallet Number", "Status", "Date & Time"];
-    const dataRows = rows.map((r) => [
-      r.id,
-      r.phone,
-      r.full_name || "",
-      r.plan_code || "",
-      r.amount,
-      r.payment_method || "",
-      r.tid || "",
-      r.wallet_number || "",
-      r.status,
-      r.submitted_at ? new Date(r.submitted_at).toLocaleString() : ""
-    ]);
-    exportToCsv("zenflow_deposits", headers, dataRows);
-  };
-
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "10px" }}>
         <h2 className="admin-section-title" style={{ margin: 0 }}>Recharge / Deposits ({rows.length} records)</h2>
-        <button
-          type="button"
-          onClick={handleExportCsv}
-          style={{ background: "#008747", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: 600, cursor: "pointer", fontSize: "13px" }}
-        >
-          💾 Save / Export CSV
-        </button>
       </div>
 
       {/* Date & Time + Search Filter Form */}
@@ -1832,36 +1737,10 @@ function Withdrawals({ rows, update, onFilter }) {
     onFilter({});
   };
 
-  const handleExportCsv = () => {
-    const headers = ["ID", "User Phone", "User Name", "Wallet Type", "Amount (PKR)", "Fee (PKR)", "Net Amount (PKR)", "Payout Method", "Account Holder", "Account Number", "Status", "Date & Time"];
-    const dataRows = rows.map((r) => [
-      r.id,
-      r.phone,
-      r.full_name || "",
-      r.wallet_type || "",
-      r.amount,
-      r.fee || 0,
-      r.net_amount || r.amount,
-      r.method || "",
-      r.account_name || "",
-      r.account_number || "",
-      r.status,
-      r.requested_at ? new Date(r.requested_at).toLocaleString() : ""
-    ]);
-    exportToCsv("zenflow_withdrawals", headers, dataRows);
-  };
-
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "10px" }}>
         <h2 className="admin-section-title" style={{ margin: 0 }}>Withdrawals ({rows.length} records)</h2>
-        <button
-          type="button"
-          onClick={handleExportCsv}
-          style={{ background: "#008747", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: 600, cursor: "pointer", fontSize: "13px" }}
-        >
-          💾 Save / Export CSV
-        </button>
       </div>
 
       {/* Date & Time + Search Filter Form */}
