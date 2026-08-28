@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { getPool } from "../config/db.js";
 import { requireAuth } from "../middleware/auth.js";
+import { uploadToCloudinary } from "../utils/cloudinary.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -74,11 +75,20 @@ router.post("/", async (req, res) => {
       return res.status(409).json({ message: "This transaction ID has already been submitted." });
     }
 
+    let cdnProofUrl = proofData || null;
+    if (proofData && proofData.startsWith("data:image")) {
+      try {
+        cdnProofUrl = await uploadToCloudinary(proofData, "zenflow/deposits");
+      } catch (err) {
+        console.error("Cloudinary proof upload error:", err);
+      }
+    }
+
     const [result] = await conn.query(
       `INSERT INTO deposits
         (user_id,plan_id,plan_code,amount,payment_method,tid,wallet_number,proof_data,status)
        VALUES(?,?,?,?,?,?,?,?,'pending')`,
-      [req.user.id, plan.id, plan.code, n, paymentMethod, normalizedTid, normalizedWallet, proofData || null]
+      [req.user.id, plan.id, plan.code, n, paymentMethod, normalizedTid, normalizedWallet, cdnProofUrl]
     );
 
     await conn.query(

@@ -2,6 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { getPool } from "../config/db.js";
 import { requireAdmin } from "../middleware/admin.js";
+import { uploadToCloudinary } from "../utils/cloudinary.js";
 
 const router = Router();
 router.use(requireAdmin);
@@ -543,6 +544,16 @@ function normalizeImageUrl(url) {
   return trimmed;
 }
 
+async function processAndUploadImage(url, folder = "zenflow") {
+  if (!url || typeof url !== "string") return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("data:image/")) {
+    return await uploadToCloudinary(trimmed, folder);
+  }
+  return normalizeImageUrl(trimmed);
+}
+
 // News Management
 router.get("/news", async (_req,res) => {
   const [rows]=await getPool().query("SELECT id,title,summary,body,image_url,category,status,published_at FROM news ORDER BY id DESC LIMIT 200");
@@ -551,7 +562,7 @@ router.get("/news", async (_req,res) => {
 router.post("/news", async (req,res) => {
   const {title,summary="",body="",imageUrl=null,category="Company",status="published"}=req.body||{};
   if(!title || !String(title).trim()) return res.status(400).json({message:"Title is required."});
-  const finalImage = normalizeImageUrl(imageUrl);
+  const finalImage = await processAndUploadImage(imageUrl, "zenflow/news");
   const [r]=await getPool().query(
     "INSERT INTO news(title,summary,body,image_url,category,status,published_at) VALUES(?,?,?,?,?,?,IF(?='published',NOW(),NULL))",
     [title.trim(),summary.trim(),body.trim(),finalImage,category.trim(),status,status]
@@ -560,7 +571,7 @@ router.post("/news", async (req,res) => {
 });
 router.patch("/news/:id", async (req,res) => {
   const {title,summary,body,imageUrl,category,status}=req.body||{};
-  const finalImage = imageUrl !== undefined ? normalizeImageUrl(imageUrl) : undefined;
+  const finalImage = imageUrl !== undefined ? await processAndUploadImage(imageUrl, "zenflow/news") : undefined;
   await getPool().query(
     `UPDATE news SET
        title = COALESCE(?, title),
@@ -640,7 +651,7 @@ router.get("/tasks", async (_req, res) => {
 router.post("/tasks", async (req, res) => {
   const { title, description = "", imageUrl = null, reward = 30, planRequired = null, status = "active" } = req.body || {};
   if (!title || !String(title).trim()) return res.status(400).json({ message: "Task title is required." });
-  const finalImage = normalizeImageUrl(imageUrl);
+  const finalImage = await processAndUploadImage(imageUrl, "zenflow/tasks");
   const [r] = await getPool().query(
     "INSERT INTO tasks(title, description, image_url, reward, plan_required, status) VALUES(?,?,?,?,?,?)",
     [title.trim(), description.trim(), finalImage, Number(reward || 30), planRequired || null, status || "active"]
@@ -649,7 +660,7 @@ router.post("/tasks", async (req, res) => {
 });
 router.patch("/tasks/:id", async (req, res) => {
   const { title, description, imageUrl, reward, planRequired, status } = req.body || {};
-  const finalImage = imageUrl !== undefined ? normalizeImageUrl(imageUrl) : undefined;
+  const finalImage = imageUrl !== undefined ? await processAndUploadImage(imageUrl, "zenflow/tasks") : undefined;
   await getPool().query(
     `UPDATE tasks SET
        title = COALESCE(?, title),
@@ -691,7 +702,7 @@ router.get("/announcements", async (_req, res) => {
 router.post("/announcements", async (req, res) => {
   const { title, message, imageUrl = null, linkUrl = null, linkLabel = "Learn More", active = 1 } = req.body || {};
   if (!title || !message) return res.status(400).json({ message: "Title and message are required." });
-  const finalImage = normalizeImageUrl(imageUrl);
+  const finalImage = await processAndUploadImage(imageUrl, "zenflow/announcements");
   try {
     const [r] = await getPool().query(
       "INSERT INTO announcements(title, message, image_url, link_url, link_label, active) VALUES(?,?,?,?,?,?)",
@@ -706,7 +717,7 @@ router.post("/announcements", async (req, res) => {
 
 router.patch("/announcements/:id", async (req, res) => {
   const { title, message, imageUrl, linkUrl, linkLabel, active } = req.body || {};
-  const finalImage = imageUrl !== undefined ? normalizeImageUrl(imageUrl) : undefined;
+  const finalImage = imageUrl !== undefined ? await processAndUploadImage(imageUrl, "zenflow/announcements") : undefined;
   try {
     await getPool().query(
       `UPDATE announcements
