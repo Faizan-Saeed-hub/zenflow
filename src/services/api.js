@@ -171,12 +171,14 @@ export const api = {
     return res;
   },
 
-  finishTaskReading: (id) => request(`/tasks/${id}/read`, { method: "POST" }),
+  completeTask: (id) => request(`/tasks/${id}/complete`, { method: "POST" }),
+
+  finishTaskReading: (id) => request(`/tasks/${id}/complete`, { method: "POST" }),
 
   submitTask: (id, p) =>
-    request(`/tasks/${id}/submit`, { method: "POST", body: JSON.stringify(p) }),
+    request(`/tasks/${id}/complete`, { method: "POST", body: JSON.stringify(p) }),
 
-  claimTaskReward: (id) => request(`/tasks/${id}/claim`, { method: "POST" }),
+  claimTaskReward: (id) => request(`/tasks/${id}/complete`, { method: "POST" }),
 
   checkin: () => request("/checkin"),
 

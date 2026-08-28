@@ -210,164 +210,128 @@ router.get("/:id", async (req, res) => {
   });
 });
 
-router.post("/:id/read", async (req, res) => {
-  const db = getPool();
-  const [[task]] = await db.query("SELECT * FROM tasks WHERE id=? AND status='active' LIMIT 1", [req.params.id]);
-  if (!task) return res.status(404).json({ message: "Task not found." });
-  const plan = await getActivePlan(db, req.user.id);
-  const trial = await getInternTrialStatus(db, req.user.id, plan);
-  const isTrialActive = trial.isIntern && !trial.trialExpired;
-
-  if (trial.trialExpired) {
-    return res.status(403).json({
-      message: "Your 3-day free Intern trial has completed. Please activate an F-plan to continue doing tasks and earning daily income."
-    });
-  }
-
-  if (!hasTaskAccess(task, plan, isTrialActive)) {
-    return res.status(403).json({ message: `Activate ${task.plan_required || "an eligible plan"} to unlock this review.` });
-  }
-
-  const [[existing]] = await db.query(
-    "SELECT * FROM task_submissions WHERE task_id=? AND user_id=? AND task_date=CURDATE() LIMIT 1",
-    [task.id, req.user.id]
-  );
-  if (existing?.status === "approved") return res.json({ message: "Task already completed.", status: "approved" });
-  if (existing) {
-    await db.query(
-      "UPDATE task_submissions SET reading_completed_at=COALESCE(reading_completed_at,NOW()), status=CASE WHEN status='reading' THEN 'review_submitted' ELSE status END WHERE id=?",
-      [existing.id]
-    );
-    return res.json({ message: "Reading marked complete.", status: "review_submitted" });
-  }
-
-  const [[count]] = await db.query(
-    "SELECT COUNT(*) completed_today FROM task_submissions WHERE user_id=? AND task_date=CURDATE() AND status='approved'",
-    [req.user.id]
-  );
-  const limit = plan ? Math.max(1, Number(plan.daily_tasks || 5)) : 5;
-  if (Number(count.completed_today) >= limit) {
-    return res.status(400).json({ message: "Today's task limit has been reached." });
-  }
-
-  const unitReward = getUnitReward(plan);
-  await db.query(
-    `INSERT INTO task_submissions(task_id,user_id,status,reward,task_date,reading_completed_at) VALUES(?,?,'review_submitted',?,CURDATE(),NOW())`,
-    [task.id, req.user.id, unitReward]
-  );
-  res.status(201).json({ message: "Reading completed. Please rate the review.", status: "review_submitted" });
-});
-
-router.post("/:id/submit", async (req, res) => {
-  const { reviewText = "", rating } = req.body || {};
-  const r = Number(rating);
-  if (!Number.isInteger(r) || r < 1 || r > 5) return res.status(400).json({ message: "Please select a rating from 1 to 5 stars." });
-  const db = getPool();
-  const [[submission]] = await db.query(
-    "SELECT * FROM task_submissions WHERE task_id=? AND user_id=? AND task_date=CURDATE() LIMIT 1",
-    [req.params.id, req.user.id]
-  );
-  if (!submission) return res.status(400).json({ message: "Finish reading before submitting your rating." });
-  if (submission.status === "approved") return res.status(409).json({ message: "Task already completed." });
-  await db.query(
-    "UPDATE task_submissions SET review_text=?,rating=?,status='reward_claimable',reviewed_at=NOW() WHERE id=?",
-    [String(reviewText).slice(0, 5000), r, submission.id]
-  );
-  await db.query("INSERT INTO notifications(user_id,type,title,message) VALUES(?,'Task',?,?)", [
-    req.user.id,
-    "Review submitted",
-    `Your book review was submitted. You can claim Rs. ${Number(submission.reward).toLocaleString()}.`
-  ]);
-  res.json({ message: "Review submitted. You can claim your reward now.", status: "reward_claimable", reward: Number(submission.reward) });
-});
-
-router.post("/:id/claim", async (req, res) => {
-  const db = getPool();
+async function executeInstantTaskComplete(db, taskId, userId) {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
-    const [[submission]] = await conn.query(
-      `SELECT ts.*, t.title, t.plan_required FROM task_submissions ts JOIN tasks t ON t.id=ts.task_id WHERE ts.task_id=? AND ts.user_id=? AND ts.task_date=CURDATE() FOR UPDATE`,
-      [req.params.id, req.user.id]
-    );
-    if (!submission) {
+
+    const [[task]] = await conn.query("SELECT * FROM tasks WHERE id=? AND status='active' LIMIT 1 FOR UPDATE", [taskId]);
+    if (!task) {
       await conn.rollback();
-      return res.status(404).json({ message: "Review not found." });
+      return { ok: false, code: 404, message: "Task not found." };
     }
 
-    const [[activePlan]] = await conn.query(
-      `SELECT p.code FROM user_plans up
-       JOIN plans p ON p.id=up.plan_id
-       WHERE up.user_id=? AND up.status='active' AND (up.expires_at IS NULL OR up.expires_at>NOW())
-       ORDER BY CAST(SUBSTRING(p.code,2) AS UNSIGNED) DESC, up.started_at DESC LIMIT 1 FOR UPDATE`,
-      [req.user.id]
-    );
-    const trial = await getInternTrialStatus(conn, req.user.id, activePlan);
+    const plan = await getActivePlan(conn, userId);
+    const trial = await getInternTrialStatus(conn, userId, plan);
     const isTrialActive = trial.isIntern && !trial.trialExpired;
 
-    if (!hasTaskAccess(submission, activePlan, isTrialActive)) {
+    if (trial.trialExpired) {
       await conn.rollback();
-      return res.status(403).json({ message: `Activate ${submission?.plan_required || "an eligible plan"} to unlock this reward.` });
-    }
-    if (submission.status === "approved") {
-      await conn.rollback();
-      return res.status(409).json({ message: "Reward already claimed." });
-    }
-    if (submission.status !== "reward_claimable") {
-      await conn.rollback();
-      return res.status(400).json({ message: "Submit your rating before claiming the reward." });
+      return {
+        ok: false,
+        code: 403,
+        message: "Your 3-day free Intern trial has completed. Please activate an F-plan to continue doing tasks and earning daily income."
+      };
     }
 
-    const [[u]] = await conn.query("SELECT commission_balance, total_earned FROM users WHERE id=? FOR UPDATE", [req.user.id]);
-    const reward = Number(submission.reward || 30);
-    await conn.query("UPDATE users SET commission_balance=commission_balance+?, total_earned=total_earned+? WHERE id=?", [
-      reward,
-      reward,
-      req.user.id
-    ]);
-    await conn.query("UPDATE task_submissions SET status='approved', reward_claimed_at=NOW(), completed_at=NOW() WHERE id=?", [
-      submission.id
-    ]);
-    await conn.query("INSERT INTO wallet_transactions(user_id,type,amount,status,reference,note) VALUES(?,'task_reward',?,'completed',?,?)", [
-      req.user.id,
-      reward,
-      `TASK-${submission.id}`,
-      `Reward for completed task: ${submission.title}`
-    ]);
-    await conn.query("INSERT INTO reward_history(user_id,type,detail,amount,status) VALUES(?,'Task',?,?, 'Completed')", [
-      req.user.id,
-      `Completed task: ${submission.title}`,
-      reward
-    ]);
+    if (!hasTaskAccess(task, plan, isTrialActive)) {
+      await conn.rollback();
+      return {
+        ok: false,
+        code: 403,
+        message: `Activate ${task.plan_required || "an eligible plan"} to unlock this review.`
+      };
+    }
 
-    // Distribute team commissions: 10% for Level A, 3% for Level B, 1% for Level C
+    const [[existing]] = await conn.query(
+      "SELECT * FROM task_submissions WHERE task_id=? AND user_id=? AND task_date=CURDATE() FOR UPDATE",
+      [taskId, userId]
+    );
+
+    if (existing?.status === "approved") {
+      await conn.rollback();
+      return { ok: false, code: 409, message: "Task already completed today." };
+    }
+
+    const [[count]] = await conn.query(
+      "SELECT COUNT(*) completed_today FROM task_submissions WHERE user_id=? AND task_date=CURDATE() AND status='approved'",
+      [userId]
+    );
+
+    const limit = plan ? Math.max(1, Number(plan.daily_tasks || 5)) : 5;
+    if (Number(count.completed_today) >= limit) {
+      await conn.rollback();
+      return {
+        ok: false,
+        code: 400,
+        message: `Today's task limit of ${limit} has been reached. Upgrade your plan for more daily tasks!`
+      };
+    }
+
+    const reward = getUnitReward(plan);
+
+    // Upsert task_submissions directly with approved status (no review or timer required)
+    if (existing) {
+      await conn.query(
+        `UPDATE task_submissions
+         SET status='approved', reward=?, reading_completed_at=COALESCE(reading_completed_at, NOW()), reviewed_at=COALESCE(reviewed_at, NOW()), reward_claimed_at=NOW(), completed_at=NOW()
+         WHERE id=?`,
+        [reward, existing.id]
+      );
+    } else {
+      await conn.query(
+        `INSERT INTO task_submissions (task_id, user_id, status, reward, task_date, reading_completed_at, reviewed_at, reward_claimed_at, completed_at)
+         VALUES (?, ?, 'approved', ?, CURDATE(), NOW(), NOW(), NOW(), NOW())`,
+        [taskId, userId, reward]
+      );
+    }
+
+    // Direct credit to user's commission wallet and total earned
+    await conn.query(
+      "UPDATE users SET commission_balance = commission_balance + ?, total_earned = total_earned + ? WHERE id = ?",
+      [reward, reward, userId]
+    );
+
+    // Log wallet transaction
+    await conn.query(
+      "INSERT INTO wallet_transactions (user_id, type, amount, status, reference, note) VALUES (?, 'task_reward', ?, 'completed', ?, ?)",
+      [userId, reward, `TASK-${taskId}`, `Instant reward for completed task: ${task.title}`]
+    );
+
+    // Log reward history
+    await conn.query(
+      "INSERT INTO reward_history (user_id, type, detail, amount, status) VALUES (?, 'Task', ?, ?, 'Completed')",
+      [userId, `Completed review: ${task.title}`, reward]
+    );
+
+    // Distribute team commissions: 10% Level A, 3% Level B, 1% Level C
     const rates = [0.1, 0.03, 0.01];
-    let referrerId = req.user.id;
+    let referrerId = userId;
     for (let level = 1; level <= 3; level++) {
       const [[member]] = await conn.query("SELECT referred_by FROM users WHERE id=? FOR UPDATE", [referrerId]);
       const parentId = member?.referred_by;
       if (!parentId) break;
       const commission = Math.round(reward * rates[level - 1] * 100) / 100;
       if (commission > 0) {
-        const ref = `TEAM-${submission.id}-L${level}`;
-        await conn.query("UPDATE users SET commission_balance=commission_balance+?, total_earned=total_earned+? WHERE id=?", [
+        const ref = `TEAM-${taskId}-L${level}`;
+        await conn.query("UPDATE users SET commission_balance = commission_balance + ?, total_earned = total_earned + ? WHERE id = ?", [
           commission,
           commission,
           parentId
         ]);
-        await conn.query("INSERT INTO team_earnings(user_id,member_user_id,level,source_type,amount,reference) VALUES(?,? ,?,'task_reward',?,?)", [
+        await conn.query("INSERT INTO team_earnings (user_id, member_user_id, level, source_type, amount, reference) VALUES (?, ?, ?, 'task_reward', ?, ?)", [
           parentId,
-          req.user.id,
+          userId,
           level,
           commission,
           ref
         ]);
-        await conn.query("INSERT INTO reward_history(user_id,type,detail,amount,status) VALUES(?,'Referral',?,?, 'Completed')", [
+        await conn.query("INSERT INTO reward_history (user_id, type, detail, amount, status) VALUES (?, 'Referral', ?, ?, 'Completed')", [
           parentId,
-          `Level ${String.fromCharCode(64 + level)} commission from ${submission.title}`,
+          `Level ${String.fromCharCode(64 + level)} commission from ${task.title}`,
           commission
         ]);
-        await conn.query("INSERT INTO notifications(user_id,type,title,message) VALUES(?,'Team',?,?)", [
+        await conn.query("INSERT INTO notifications (user_id, type, title, message) VALUES (?, 'Team', ?, ?)", [
           parentId,
           "Team commission credited",
           `Rs. ${commission.toLocaleString()} Level ${String.fromCharCode(64 + level)} commission has been credited from a team task.`
@@ -375,19 +339,72 @@ router.post("/:id/claim", async (req, res) => {
       }
       referrerId = parentId;
     }
-    await conn.query("INSERT INTO notifications(user_id,type,title,message) VALUES(?,'Reward',?,?)", [
-      req.user.id,
+
+    await conn.query("INSERT INTO notifications (user_id, type, title, message) VALUES (?, 'Reward', ?, ?)", [
+      userId,
       "Reward credited",
       `Rs. ${reward.toLocaleString()} has been credited to your Commission Wallet.`
     ]);
+
+    const [[updatedUser]] = await conn.query("SELECT commission_balance, total_earned FROM users WHERE id=?", [userId]);
+
     await conn.commit();
-    res.json({ message: `Rs. ${reward.toLocaleString()} credited to your wallet.`, reward, balance: Number(u.commission_balance) + reward });
-  } catch (e) {
+
+    return {
+      ok: true,
+      reward,
+      status: "approved",
+      balance: updatedUser?.commission_balance,
+      message: `✓ Task completed! Rs. ${Number(reward).toLocaleString()} credited directly to your wallet.`
+    };
+  } catch (err) {
     await conn.rollback();
-    console.error(e);
-    res.status(500).json({ message: "Unable to claim reward." });
+    throw err;
   } finally {
     conn.release();
+  }
+}
+
+// 1-Step Instant Task Complete Endpoint
+router.post("/:id/complete", async (req, res) => {
+  try {
+    const result = await executeInstantTaskComplete(getPool(), req.params.id, req.user.id);
+    if (!result.ok) return res.status(result.code || 400).json({ message: result.message });
+    res.json(result);
+  } catch (err) {
+    console.error("Instant task completion error:", err);
+    res.status(500).json({ message: "Unable to complete task: " + err.message });
+  }
+});
+
+// Legacy endpoints mapped to instant completion for full compatibility
+router.post("/:id/read", async (req, res) => {
+  try {
+    const result = await executeInstantTaskComplete(getPool(), req.params.id, req.user.id);
+    if (!result.ok) return res.status(result.code || 400).json({ message: result.message });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ message: "Unable to process task: " + err.message });
+  }
+});
+
+router.post("/:id/submit", async (req, res) => {
+  try {
+    const result = await executeInstantTaskComplete(getPool(), req.params.id, req.user.id);
+    if (!result.ok) return res.status(result.code || 400).json({ message: result.message });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ message: "Unable to submit task: " + err.message });
+  }
+});
+
+router.post("/:id/claim", async (req, res) => {
+  try {
+    const result = await executeInstantTaskComplete(getPool(), req.params.id, req.user.id);
+    if (!result.ok) return res.status(result.code || 400).json({ message: result.message });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ message: "Unable to claim task: " + err.message });
   }
 });
 

@@ -236,6 +236,27 @@ async function ensureNewTables() {
     throw new Error(`Required table(s) missing after schema initialization: ${missing.join(", ")}`);
   }
   console.log(`Database table verification passed: ${requiredTables.length}/${requiredTables.length} required tables present.`);
+
+  if (await hasTable("lucky_spin_logs")) {
+    if (!(await hasIndex("lucky_spin_logs", "idx_lucky_logs_user"))) {
+      try { await q("ALTER TABLE lucky_spin_logs ADD INDEX idx_lucky_logs_user (user_id)"); } catch (_) {}
+    }
+  }
+  if (await hasTable("task_submissions")) {
+    if (!(await hasIndex("task_submissions", "idx_task_sub_user_date"))) {
+      try { await q("ALTER TABLE task_submissions ADD INDEX idx_task_sub_user_date (user_id, task_date, status)"); } catch (_) {}
+    }
+  }
+  if (await hasTable("reward_history")) {
+    if (!(await hasIndex("reward_history", "idx_reward_hist_user_created"))) {
+      try { await q("ALTER TABLE reward_history ADD INDEX idx_reward_hist_user_created (user_id, created_at)"); } catch (_) {}
+    }
+  }
+  if (await hasTable("wallet_transactions")) {
+    if (!(await hasIndex("wallet_transactions", "idx_wallet_tx_user_created"))) {
+      try { await q("ALTER TABLE wallet_transactions ADD INDEX idx_wallet_tx_user_created (user_id, created_at)"); } catch (_) {}
+    }
+  }
 }
 
 async function seedAndVerify() {
