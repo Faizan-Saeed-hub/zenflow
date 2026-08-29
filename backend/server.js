@@ -45,14 +45,16 @@ app.use(cors({
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.get("/api/health", async (_req, res) => {
-  const database = await testConnection();
+  const dbHealth = await testConnection();
+  const isConnected = dbHealth.status === "connected";
   res
-    .status(database === "connected" ? 200 : 503)
+    .status(isConnected ? 200 : 503)
     .json({
-      ok: database === "connected",
+      ok: isConnected,
       service: "zen-api",
-      database,
-      databaseName: process.env.DB_NAME || "zen"
+      database: dbHealth.status,
+      databaseName: dbHealth.database,
+      dbDetails: dbHealth
     });
 });
 app.use("/api/auth",authRoutes); app.use("/api/me",meRoutes); app.use("/api/notifications",notificationRoutes); app.use("/api/wallet",walletRoutes);
