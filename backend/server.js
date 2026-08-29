@@ -32,10 +32,27 @@ const app=express(), PORT=Number(process.env.PORT||5000);
 // Gzip compression for all JSON and static responses
 app.use(compression());
 
-// Auto-initialize cloud database tables and default admin
-runSetupDb()
-  .then(() => runCreateAdmin())
-  .catch((err) => console.error("Database auto-init notice:", err.message));
+// Auto-initialize cloud database tables and default admin with smart retry
+async function initializeDatabaseWithRetry(maxRetries = 15, delayMs = 3000) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const dbHealth = await testConnection();
+      if (dbHealth.status === "connected") {
+        await runSetupDb();
+        await runCreateAdmin();
+        console.log("✓ Database auto-init & admin sync completed successfully.");
+        return;
+      }
+    } catch (err) {
+      console.warn(`[DB-Init] Waiting for cloud database to be ready (attempt ${attempt}/${maxRetries}):`, err.message);
+    }
+    if (attempt < maxRetries) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
+initializeDatabaseWithRetry().catch(() => {});
 app.use(cors({
   origin: true,
   credentials: true,
