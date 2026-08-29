@@ -1,13 +1,15 @@
 import jwt from "jsonwebtoken";
 import { getPool } from "../config/db.js";
 
+const JWT_SECRET = process.env.JWT_SECRET || "zenflow_jwt_secret_key_production_master_2026_zen";
+
 export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (!token) return res.status(401).json({ message: "Authentication required." });
   
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const payload = jwt.verify(token, JWT_SECRET);
     
     // Single active session & existence verification
     const [rows] = await getPool().query(

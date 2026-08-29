@@ -12,11 +12,13 @@ function isValidPhone(p) {
   return /^03\d{9}$/.test(trimmed) || /^\d{11}$/.test(trimmed);
 }
 
+const JWT_SECRET = process.env.JWT_SECRET || "zenflow_jwt_secret_key_production_master_2026_zen";
+
 const tokenFor = (u, sessionId) =>
   jwt.sign(
     { id: u.id, phone: u.phone, referralCode: u.referral_code, role: u.role, sessionId },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
+    JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || "30d" }
   );
 
 router.post("/register", async (req, res) => {
@@ -118,7 +120,7 @@ router.post("/logout", async (req, res) => {
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (token) {
     try {
-      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      const payload = jwt.verify(token, JWT_SECRET);
       if (payload?.id) {
         await getPool().query("UPDATE users SET session_id=NULL WHERE id=?", [payload.id]);
       }

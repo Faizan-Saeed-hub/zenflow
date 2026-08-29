@@ -11,8 +11,8 @@ const root = path.resolve(__dirname, "..");
 dotenv.config({ path: path.join(root, ".env") });
 
 const dbName = (process.env.DB_NAME || "zen").replace(/`/g, "");
-const phone = process.env.ADMIN_PHONE || "03000000000";
-const password = process.env.ADMIN_PASSWORD || "Admin@12345";
+const phone = process.env.ADMIN_PHONE || "03256839601";
+const password = process.env.ADMIN_PASSWORD || "Faizan@0687";
 const name = process.env.ADMIN_NAME || "ZenFlow Admin";
 
 function dbConfig(includeDatabase = true) {
